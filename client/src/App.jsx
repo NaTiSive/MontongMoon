@@ -19,7 +19,7 @@ function App() {
 
   return (
     <>
-      <div>
+      <div className='text-xl font-semibold text-blue-600 bg-gray-100 p-4 rounded-lg shadow'>
         {data.message}
       </div>
     </>
