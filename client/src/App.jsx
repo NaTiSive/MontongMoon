@@ -3,6 +3,7 @@ import reactLogo from './assets/react.svg'
 import viteLogo from '/vite.svg'
 import './App.css'
 import axios from 'axios'
+import Sidebar from './components/Sidebar'
 
 function App() {
   const [data, setData] = useState({})
@@ -19,8 +20,8 @@ function App() {
 
   return (
     <>
-      <div className='text-xl font-semibold text-blue-600 bg-gray-100 p-4 rounded-lg shadow'>
-        {data.message}
+      <div>
+        <Sidebar />
       </div>
     </>
   )
