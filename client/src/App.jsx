@@ -8,7 +8,7 @@ import PageHeader from './components/pageHeader'
 function App() {
   return (
     <div>
-      <PageHeader />
+      <PageHeader title='รายงานปัญหาที่เกิดขึ้นในสวน' subtitle='แจ้งรายละเอียดปัญหาเพื่อให้เจ้าของสวนให้คำแนะนำได้อย่างรวดเร็ว' />
     </div>
   );
 }
