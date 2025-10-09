@@ -1,17 +1,23 @@
-import "./Header.css"
+import "./Header.css";
 
-export default function Header({ title }) {
+export default function Header({ name = "ชื่อผู้ใช้", role = "บทบาท" }) {
   return (
-    <div className="flex justify-between items-center py-4 px-6 bg-white shadow-sm rounded-lg">
-      <h1 className="text-xl font-semibold text-gray-800">{title}</h1>
-      <div className="flex items-center gap-3">
-        <div className="flex flex-col items-start gap-2">
-          <span className="text-sm text-gray-600">Nattakorn KK</span>
-          <span className="text-sm text-gray-600">role</span>
-        </div>
-        <div className="flex flex-col items-center gap-2">
-          <img src="/avatar.png" className="w-8 h-8 rounded-full" />
-          <span className="text-green-700 border border-green-700 text-xs bg-white- rounded w-[80px] h-5 flex items-center justify-center">แก้ไขโปรไฟล์</span>
+    <div className="fixed top-0 left-0 w-full bg-white shadow-sm py-3 px-6 flex justify-end items-center z-50">
+      <div className="flex justify-between items-center py-4 px-6">
+        <div className="flex items-center gap-4">
+          <div className="flex flex-col items-start">
+            <span className="text-sm font-medium text-gray-800">{name}</span>
+            <span className="text-xs text-gray-500">{role}</span>
+          </div>
+          <div className="flex flex-col items-center">
+            <img
+              src="/avatar.png"
+              className="w-15 h-15 rounded-full object-cover"
+            />
+            <button className="text-green-700 border border-green-700 text-xs rounded-lg w-[80px] h-5 mt-1 flex items-center justify-center hover:bg-green-700 hover:text-white transition">
+              แก้ไขโปรไฟล์
+            </button>
+          </div>
         </div>
       </div>
     </div>
