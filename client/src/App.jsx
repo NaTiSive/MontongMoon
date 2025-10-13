@@ -5,6 +5,9 @@ import axios from 'axios'
 import Card from './components/Card'
 
 function App() {
+    const handleClick = () => {
+    alert("กดปุ่มแล้ว");
+  };
   return (
     <div className="p-6 grid grid-cols-2 gap-6">
       <Card>
