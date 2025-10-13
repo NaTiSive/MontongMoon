@@ -2,19 +2,29 @@ import { useState, useEffect} from 'react'
 import reactLogo from './assets/react.svg'
 import './App.css'
 import axios from 'axios'
-import PrimaryButton from './components/PrimaryButton'
-import SecondaryButton from './components/SecondaryButton'
+import Card from './components/Card'
 
 function App() {
     const handleClick = () => {
     alert("กดปุ่มแล้ว");
   };
   return (
-    <div className='flex p-2 flex-row gap-3'>
-      <PrimaryButton label="ปุ่มหลัก" onClick={handleClick}/>
-      <SecondaryButton label="ปุ่มรอง" onClick={handleClick}/>
+    <div className="p-6 grid grid-cols-2 gap-6">
+      <Card>
+        <h2 className="text-lg font-semibold mb-2">สรุปเกรดผลผลิต</h2>
+        <p className="text-sm text-gray-600">เกรด A: 850 kg</p>
+        <p className="text-sm text-gray-600">เกรด B: 300 kg</p>
+      </Card>
+
+      <Card className="bg-yellow-50">
+        <h2 className="text-lg font-semibold mb-2">ข้อเสนอจากผู้รับเหมา</h2>
+        <ul className="list-disc pl-5 text-sm text-gray-700">
+          <li>Broker A — ฿35/kg</li>
+          <li>Broker B — ฿32/kg</li>
+        </ul>
+      </Card>
     </div>
-  )
+  );
 }
 
 export default App
