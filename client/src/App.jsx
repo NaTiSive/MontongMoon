@@ -1,29 +1,19 @@
 import { useState, useEffect} from 'react'
 import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
 import './App.css'
 import axios from 'axios'
+import SearchBar from './components/serchbar'
 
 function App() {
-  const [data, setData] = useState({})
-
-  useEffect(() => {
-
-    axios.get('http://localhost:3000/api/data').then(res => {
-      setData(res.data);
-    }).catch(err => {
-      console.error("Error fetching data: ", err)
-    })
-
-  }, [])
+  const handleSearch = (keyword) => {
+    console.log("คำที่ค้นหา:", keyword);
+  };
 
   return (
-    <>
-      <div className='text-xl font-semibold text-blue-600 bg-gray-100 p-4 rounded-lg shadow'>
-        {data.message}
-      </div>
-    </>
-  )
+    <div className="p-6">
+      <SearchBar placeholder="ค้นหาชื่อผู้รับเหมา..." onSearch={handleSearch} />
+    </div>
+  );
 }
 
 export default App
