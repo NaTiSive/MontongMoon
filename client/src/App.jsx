@@ -2,17 +2,15 @@ import { useState, useEffect} from 'react'
 import reactLogo from './assets/react.svg'
 import './App.css'
 import axios from 'axios'
-import Header from './components/Header'
+import PageHeader from './components/pageHeader'
 
 function App() {
-
   return (
-    <>
-    <div className='min-h-screen flex flex-col bg-gray-50'>
-        <Header name="Nattakorn KK" role = "owner"/>
+    <div>
+      <PageHeader title='รายงานปัญหาที่เกิดขึ้นในสวน' subtitle='แจ้งรายละเอียดปัญหาเพื่อให้เจ้าของสวนให้คำแนะนำได้อย่างรวดเร็ว' />
     </div>
-    </>
-  )
+  );
 }
 
-export default App;
+
+export default App
