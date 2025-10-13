@@ -2,12 +2,16 @@ import { useState, useEffect} from 'react'
 import reactLogo from './assets/react.svg'
 import './App.css'
 import axios from 'axios'
-import PageHeader from './components/pageHeader'
+import SearchBar from './components/serchbar'
 
 function App() {
+  const handleSearch = (keyword) => {
+    console.log("คำที่ค้นหา:", keyword);
+  };
+
   return (
-    <div>
-      <PageHeader title='รายงานปัญหาที่เกิดขึ้นในสวน' subtitle='แจ้งรายละเอียดปัญหาเพื่อให้เจ้าของสวนให้คำแนะนำได้อย่างรวดเร็ว' />
+    <div className="p-6">
+      <SearchBar placeholder="ค้นหาชื่อผู้รับเหมา..." onSearch={handleSearch} />
     </div>
   );
 }
