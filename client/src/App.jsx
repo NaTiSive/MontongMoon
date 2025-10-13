@@ -1,19 +1,23 @@
-import { useState, useEffect} from 'react'
-import reactLogo from './assets/react.svg'
+import { useState } from 'react'
 import './App.css'
-import axios from 'axios'
-import SearchBar from './components/serchbar'
+import SelectField from './components/SelectField'
 
 function App() {
-  const handleSearch = (keyword) => {
-    console.log("คำที่ค้นหา:", keyword);
-  };
+  const [grade, setGrade] = useState('') 
 
   return (
     <div className="p-6">
-      <SearchBar placeholder="ค้นหาชื่อผู้รับเหมา..." onSearch={handleSearch} />
+      <SelectField
+        label="เกรดผลผลิต"
+        placeholder="เลือกเกรด"
+        options={["A", "B", "C", "ตกเกรด"]}
+        value={grade}
+        onChange={(e) => setGrade(e.target.value)}  //อัปเดต state
+      />
+
+      <p className="mt-3 text-gray-700">เลือกแล้ว: {grade || '—'}</p>
     </div>
-  );
+  )
 }
 
 
