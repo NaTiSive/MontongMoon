@@ -1,30 +1,29 @@
-import { useState, useEffect} from 'react'
-import reactLogo from './assets/react.svg'
-import './App.css'
-import axios from 'axios'
-import Card from './components/Card'
+import { useState, useEffect } from "react";
+import reactLogo from "./assets/react.svg";
+import "./App.css";
+import axios from "axios";
+import DataTable from "./components/datatable";
 
 function App() {
-    const handleClick = () => {
-    alert("กดปุ่มแล้ว");
-  };
-  return (
-    <div className="p-6 grid grid-cols-2 gap-6">
-      <Card>
-        <h2 className="text-lg font-semibold mb-2">สรุปเกรดผลผลิต</h2>
-        <p className="text-sm text-gray-600">เกรด A: 850 kg</p>
-        <p className="text-sm text-gray-600">เกรด B: 300 kg</p>
-      </Card>
+  const offerCols = [
+    { key: "submittedAt", header: "วันที่เสนอ" },
+    { key: "brokerName", header: "ผู้รับเหมา" },
+    { key: "quantityKg", header: "ปริมาณ (กก.)" },
+    { key: "pricePerKg", header: "ราคา (บาท/กก.)" },
+    { key: "payMethod", header: "วิธีจ่ายเงิน" },
+  ];
 
-      <Card className="bg-yellow-50">
-        <h2 className="text-lg font-semibold mb-2">ข้อเสนอจากผู้รับเหมา</h2>
-        <ul className="list-disc pl-5 text-sm text-gray-700">
-          <li>Broker A — ฿35/kg</li>
-          <li>Broker B — ฿32/kg</li>
-        </ul>
-      </Card>
+  const offerData = [
+    { id: "of1", submittedAt: "2025-10-08", brokerName: "บจก. สวนสบายใจ", quantityKg: 500, pricePerKg: 120, payMethod: "โอนเงิน" },
+    { id: "of2", submittedAt: "2025-10-09", brokerName: "คุณสมชาย", quantityKg: 300, pricePerKg: 115, payMethod: "เงินสด" },
+  ];
+
+  return (
+    <div className="p-6">
+      <h1 className="text-xl font-semibold mb-4 text-gray-800">ข้อเสนอที่เข้ามา</h1>
+      <DataTable columns={offerCols} data={offerData} />
     </div>
   );
 }
 
-export default App
+export default App;
