@@ -33,7 +33,7 @@ export default function App() {
   return (
     <Routes>
       {/* default */}
-      <Route path="/" element={<Navigate to="/login" replace />} />
+      <Route path="/" element={<Navigate to="/broker/transaction" replace />} />
 
       {/* Auth  */}
       <Route path="/login" element={<Login />} />
