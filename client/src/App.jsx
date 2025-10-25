@@ -11,7 +11,7 @@ import Signup from "./pages/Signup";
 
 //broker page
 import BrokerActivity from "./pages/broker/BrokerActivity";
-import BrokerDashboard from "./pages/broker/BrokerDashbord";
+import BrokerDashboard from "./pages/broker/BrokerDashboard";
 import BrokerHavest from "./pages/broker/BrokerHavest";
 import BrokerReportProblem from "./pages/broker/BrokerReportProblem";
 import BrokerSubmitOffer from "./pages/broker/BrokerSubmitOffer";
@@ -33,7 +33,7 @@ export default function App() {
   return (
     <Routes>
       {/* default */}
-      <Route path="/" element={<Navigate to="/login" replace />} />
+      <Route path="/" element={<Navigate to="/broker/dashboard" replace />} />
 
       {/* Auth  */}
       <Route path="/login" element={<Login />} />
