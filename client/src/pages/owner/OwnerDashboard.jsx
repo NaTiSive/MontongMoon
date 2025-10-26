@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import PageHeader from "../../components/pageHeader";
+import PageHeader from "../../components/PageHeader";
 import Card from "../../components/Card";
 import PrimaryButton from "../../components/PrimaryButton";
 import SearchBar from "../../components/Searchbar";
