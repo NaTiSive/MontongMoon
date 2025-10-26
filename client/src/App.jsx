@@ -25,6 +25,7 @@ import OwnerOffers from "./pages/owner/OwnerOffers";
 import OwnerProblems from "./pages/owner/OwnerProblems";
 import OwnerTransactions from "./pages/owner/OwnerTransactions";
 import OwnerTreeStatus from "./pages/owner/OwnerTreeStatus";
+import EditProfile from "./pages/Profile";
 
 
 export default function App() {
