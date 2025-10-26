@@ -12,7 +12,7 @@ import Signup from "./pages/Signup";
 //broker page
 import BrokerActivity from "./pages/broker/BrokerActivity";
 import BrokerDashboard from "./pages/broker/BrokerDashboard";
-import BrokerHavest from "./pages/broker/BrokerHavest";
+import BrokerHarvest from "./pages/broker/BrokerHarvest";
 import BrokerReportProblem from "./pages/broker/BrokerReportProblem";
 import BrokerSubmitOffer from "./pages/broker/BrokerSubmitOffer";
 import BrokerTransaction from "./pages/broker/BrokerTransaction";
@@ -20,7 +20,7 @@ import BrokerTransaction from "./pages/broker/BrokerTransaction";
 //owner page
 import OwnerActivities from "./pages/owner/OwnerActivities";
 import OwnerDashboard from "./pages/owner/OwnerDashboard";
-import OwnerHavest from "./pages/owner/OwnerHavest";
+import OwnerHarvest from "./pages/owner/OwnerHarvest";
 import OwnerOffers from "./pages/owner/OwnerOffers";
 import OwnerProblems from "./pages/owner/OwnerProblems";
 import OwnerTransactions from "./pages/owner/OwnerTransactions";
@@ -45,7 +45,7 @@ export default function App() {
       <Route path="/owner/dashboard" element={<OwnerDashboard />} />
       <Route path="/owner/offers" element={<OwnerOffers />} />
       <Route path="/owner/treestatus" element={<OwnerTreeStatus />} />
-      <Route path="/owner/havest" element={<OwnerHavest />} />
+      <Route path="/owner/harvest" element={<OwnerHarvest />} />
       <Route path="/owner/transaction" element={<OwnerTransactions />} />
       <Route path="/owner/problems" element={<OwnerProblems />} />
       <Route path="/owner/acvities" element={<OwnerActivities />} />
@@ -53,7 +53,7 @@ export default function App() {
       {/* broker page */}
       <Route path="/broker/dashboard" element={<BrokerDashboard />} />
       <Route path="/broker/offers" element={<BrokerSubmitOffer />} />
-      <Route path="/broker/havest" element={<BrokerHavest/>} />
+      <Route path="/broker/harvest" element={<BrokerHarvest/>} />
       <Route path="/broker/transaction" element={<BrokerTransaction />} />
       <Route path="/broker/problems" element={<BrokerReportProblem />} />
       <Route path="/broker/activity" element={<BrokerActivity />} />
