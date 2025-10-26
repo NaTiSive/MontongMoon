@@ -34,7 +34,7 @@ export default function App() {
   return (
     <Routes>
       {/* default */}
-      <Route path="/" element={<Navigate to="/profile" replace />} />
+      <Route path="/" element={<Navigate to="/signup" replace />} />
 
       {/* Auth  */}
       <Route path="/login" element={<Login />} />
