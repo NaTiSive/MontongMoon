@@ -1,23 +1,13 @@
 // src/pages/broker/BrokerDashboard.jsx
-import React, { useMemo, useState } from "react";
+import React, { useMemo } from "react";
 import Sidebar from "../../components/Sidebar";
 import Header from "../../components/Header";
 import Card from "../../components/Card";
-
-// === แทน useAuth จริงชั่วคราว ===
-const useMockAuth = () => {
-  // เปลี่ยนเป็น "approved" เพื่อดูหน้าหลังอนุมัติ
-  const [user] = useState({
-    role: "broker",
-    name: "Broker Name",
-    approvalStatus: "pending", // "pending" | "approved"
-  });
-  return { user };
-};
+import { useAuth } from "../../contexts/AuthContext"; // ✅ ใช้ของจริง
 
 export default function BrokerDashboard() {
-  const { user } = useMockAuth(); // เปลี่ยนเป็น useAuth() ของจริงภายหลัง
-  const status = user?.approvalStatus || "pending";
+  const { user, updateUser } = useAuth();            // ✅ ดึงจาก Context
+  const status = String(user?.approvalStatus || "pending").toLowerCase();
 
   return (
     <div className="min-h-screen w-full bg-slate-50 text-slate-900 flex">
@@ -36,7 +26,11 @@ export default function BrokerDashboard() {
         />
 
         <main className="p-4 sm:p-6 pt-28">
-          {status === "pending" ? <PendingBlock /> : <ApprovedContent />}
+          {status === "pending" ? (
+            <PendingBlock onApproveMock={() => updateUser({ approvalStatus: "approved" })} />
+          ) : (
+            <ApprovedContent />
+          )}
         </main>
       </div>
     </div>
@@ -44,7 +38,7 @@ export default function BrokerDashboard() {
 }
 
 /* ======================= โหมดรออนุมัติ ======================= */
-function PendingBlock() {
+function PendingBlock({ onApproveMock }) {
   return (
     <div className="max-w-2xl">
       <Card>
@@ -52,12 +46,23 @@ function PendingBlock() {
         <p className="text-sm text-slate-600">
           เจ้าของสวนจะอนุมัติข้อเสนอของคุณเมื่อได้รับข้อมูลครบถ้วน กรุณายื่นข้อเสนอซื้อเพื่อให้เจ้าของสวนพิจารณา
         </p>
-        <button
-          className="mt-3 px-4 py-2 rounded-lg bg-amber-500 text-white text-sm hover:bg-amber-600"
-          onClick={() => alert("เปิดฟอร์ม/อัปโหลดเอกสาร (เชื่อมจริงภายหลัง)")}
-        >
-          ยื่นข้อเสนอซื้อทุเรียน
-        </button>
+
+        <div className="mt-3 flex gap-3">
+          <button
+            className="px-4 py-2 rounded-lg bg-amber-500 text-white text-sm hover:bg-amber-600"
+            onClick={() => alert("เปิดฟอร์ม/อัปโหลดเอกสาร (เชื่อมจริงภายหลัง)")}
+          >
+            ยื่นข้อเสนอซื้อทุเรียน
+          </button>
+
+          {/* ปุ่มจำลองอนุมัติ: ใช้เฉพาะตอน DEV เพื่อให้ Sidebar เปลี่ยนเมนูทันที */}
+          <button
+            className="px-3 py-2 rounded-lg bg-emerald-600 text-white text-xs hover:bg-emerald-700"
+            onClick={onApproveMock}
+          >
+            ✅ จำลองอนุมัติบัญชีนี้
+          </button>
+        </div>
       </Card>
     </div>
   );
@@ -65,7 +70,6 @@ function PendingBlock() {
 
 /* ======================= โหมดอนุมัติแล้ว ======================= */
 function ApprovedContent() {
-  // --- Mock summary for the hero row (เหมือนรูป) ---
   const treeStatus = [
     { key: "ปกติ", count: 2, box: "bg-emerald-100", text: "text-emerald-700", border: "border-emerald-300" },
     { key: "มีปัญหา", count: 2, box: "bg-rose-100", text: "text-rose-700", border: "border-rose-300" },

@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import InputField from "../components/InputField";
 import TextArea from "../components/TextArea";
 import PrimaryButton from "../components/PrimaryButton";
-import PageHeader from "../components/pageHeader";
+import PageHeader from "../components/PageHeader";
 import Card from "../components/Card";
 
 export default function EditProfile() {
