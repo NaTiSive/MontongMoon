@@ -3,8 +3,21 @@ import React, { useMemo, useState } from "react";
 import Sidebar from "../../components/Sidebar";
 import Header from "../../components/Header";
 import Card from "../../components/Card";
+import { useAuth } from "../../contexts/AuthContext";
+import { useNavigate } from "react-router-dom";
+import { useEffect } from "react";
+import HeaderWrapper from "../../components/HeaderWrapper";
 
 export default function BrokerActivity() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!user || user.role !== "broker") {
+      navigate("/login");
+    }
+  }, [user, navigate]);
+
   // ตัวอย่าง Tree ที่ค้นหาได้ (จริงให้ดึงจาก API)
   const trees = useMemo(
     () => ["T-001", "T-012", "T-032", "T-045", "T-101", "T-115", "T-203"],
@@ -12,11 +25,7 @@ export default function BrokerActivity() {
   );
 
   // รายการประเภจกิจกรรม (ปรับเพิ่มได้)
-  const categories = [
-    "รายต้น",
-    "ภาพรวม",
-    "อื่น ๆ",
-  ];
+  const categories = ["รายต้น", "ภาพรวม", "อื่น ๆ"];
 
   const [form, setForm] = useState({
     treeId: "",
@@ -48,11 +57,9 @@ export default function BrokerActivity() {
 
       {/* Main */}
       <div className="flex-1 min-w-0 flex flex-col">
-        <Header
+        <HeaderWrapper
           title="บันทึกกิจกรรมที่ทำในสวน"
           subtitle="ระบุรายละเอียดกิจกรรมเพื่อให้เจ้าของสวนติดตามความคืบหน้าได้"
-          name="สมชาย เข้มแข็ง"
-          role="เจ้าของสวน"
         />
 
         <main className="p-4 sm:p-6 pt-28">

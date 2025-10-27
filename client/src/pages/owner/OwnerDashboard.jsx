@@ -1,14 +1,24 @@
 import React, { useState } from "react";
-import PageHeader from "../../components/PageHeader";
 import Card from "../../components/Card";
 import PrimaryButton from "../../components/PrimaryButton";
 import SearchBar from "../../components/Searchbar";
 import Sidebar from "../../components/Sidebar";
-import Header from "../../components/Header";
+import { useAuth } from "../../contexts/AuthContext";
+import { useNavigate } from "react-router-dom";
+import { useEffect } from "react";
+import HeaderWrapper from "../../components/HeaderWrapper";
 
 // ถ้ามี Card / Button / SearchBar ของคุณเองแล้ว ค่อยเปลี่ยนมาใช้ component เหล่านั้นได้
 
 export default function OwnerDashboard() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!user || user.role !== "owner") {
+      navigate("/login");
+    }
+  }, [user, navigate]);
   // --- mock states ---
   const [deadline, setDeadline] = useState("2025-10-04T07:00");
   const treeStatus = [
@@ -55,13 +65,11 @@ export default function OwnerDashboard() {
       <div className="flex-1 min-w-0 flex flex-col">
         {/* Top Header (คงอยู่ด้านบนของ main) */}
         <div className="full">
-          <Header
-            title="แดชบอร์ดเจ้าของสวน"
-            subtitle="ติดตามภาพรวมของสวนของคุณ"
-            name="ชื่อผู้ใช้"
-            role="เจ้าของสวน"
-            className="py-3 px-6 flex justify-end items-center"
-          />
+
+
+          <HeaderWrapper title="แดชบอร์ดเจ้าของสวน" subtitle="ติดตามภาพรวมของสวนของคุณ" />
+
+          
         </div>
         {/* เนื้อหาหลักของหน้า */}
         <main className="p-4 sm:p-6">

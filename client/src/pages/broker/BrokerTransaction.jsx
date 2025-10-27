@@ -3,25 +3,54 @@ import React, { useState } from "react";
 import Sidebar from "../../components/Sidebar";
 import Header from "../../components/Header";
 import Card from "../../components/Card";
+import { useAuth } from "../../contexts/AuthContext";
+import { useNavigate } from "react-router-dom";
+import { useEffect } from "react";
+import HeaderWrapper from "../../components/HeaderWrapper";
 
 export default function BrokerTransaction() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!user || user.role !== "broker") {
+      navigate("/login");
+    }
+  }, [user, navigate]);
+
   const [form, setForm] = useState({
-    kind: "รายรับ",          // รายรับ | รายจ่าย
-    method: "เงินสด",        // เงินสด | โอนเงิน | เช็ค
-    ref: "",                 // เลขอ้างอิงใบเสร็จ
-    amount: "",             // จำนวนเงิน (บาท)
-    note: "",               // หมายเหตุ
+    kind: "รายรับ", // รายรับ | รายจ่าย
+    method: "เงินสด", // เงินสด | โอนเงิน | เช็ค
+    ref: "", // เลขอ้างอิงใบเสร็จ
+    amount: "", // จำนวนเงิน (บาท)
+    note: "", // หมายเหตุ
   });
 
   const [items, setItems] = useState([
-    { id: "TX-001", kind: "รายรับ", method: "โอนเงิน", ref: "INV-2025-001", amount: 10850, note: "ขายผลผลิต", at: "2025-10-03T11:46:09" },
+    {
+      id: "TX-001",
+      kind: "รายรับ",
+      method: "โอนเงิน",
+      ref: "INV-2025-001",
+      amount: 10850,
+      note: "ขายผลผลิต",
+      at: "2025-10-03T11:46:09",
+    },
   ]);
 
-  const onChange = (k) => (e) => setForm((p) => ({ ...p, [k]: e.target.value }));
+  const onChange = (k) => (e) =>
+    setForm((p) => ({ ...p, [k]: e.target.value }));
 
-  const fmt = (n) => n.toLocaleString("th-TH", { style: "currency", currency: "THB" });
+  const fmt = (n) =>
+    n.toLocaleString("th-TH", { style: "currency", currency: "THB" });
   const fmtDT = (iso) =>
-    new Date(iso).toLocaleString("th-TH", { year: "numeric", month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+    new Date(iso).toLocaleString("th-TH", {
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
 
   const submit = (e) => {
     e.preventDefault();
@@ -39,7 +68,13 @@ export default function BrokerTransaction() {
       at: new Date().toISOString(),
     };
     setItems((prev) => [rec, ...prev]);
-    setForm({ kind: "รายรับ", method: "เงินสด", ref: "", amount: "", note: "" });
+    setForm({
+      kind: "รายรับ",
+      method: "เงินสด",
+      ref: "",
+      amount: "",
+      note: "",
+    });
     alert("ส่งรายงานให้เจ้าของสวนเรียบร้อย");
   };
 
@@ -52,20 +87,22 @@ export default function BrokerTransaction() {
 
       {/* Main */}
       <div className="flex-1 min-w-0 flex flex-col">
-        <Header
-          title="บันทึกรายรับ / รายจ่าย"
-          subtitle="แจ้งรายละเอียดรายการเพื่อให้เจ้าของสวนติดตามได้อย่างรวดเร็ว"
-          name="สมชาย เข้มแข็ง"
-          role="เจ้าของสวน"
-        />
+
+        <HeaderWrapper title="บันทึกรายรับ / รายจ่าย" subtitle="จ้งรายละเอียดรายการเพื่อให้เจ้าของสวนติดตามได้อย่างรวดเร็ว" />
+
 
         <main className="p-4 sm:p-6 pt-28">
           <div className="max-w-4xl mx-auto space-y-6">
             <Card>
-              <form onSubmit={submit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <form
+                onSubmit={submit}
+                className="grid grid-cols-1 md:grid-cols-2 gap-4"
+              >
                 {/* ซ้าย */}
                 <div>
-                  <label className="block text-sm text-slate-600 mb-1">ประเภทรายการ</label>
+                  <label className="block text-sm text-slate-600 mb-1">
+                    ประเภทรายการ
+                  </label>
                   <select
                     value={form.kind}
                     onChange={onChange("kind")}
@@ -78,7 +115,9 @@ export default function BrokerTransaction() {
 
                 {/* ขวา */}
                 <div>
-                  <label className="block text-sm text-slate-600 mb-1">วิธีการจ่าย / รับเงิน</label>
+                  <label className="block text-sm text-slate-600 mb-1">
+                    วิธีการจ่าย / รับเงิน
+                  </label>
                   <select
                     value={form.method}
                     onChange={onChange("method")}
@@ -91,7 +130,9 @@ export default function BrokerTransaction() {
                 </div>
 
                 <div>
-                  <label className="block text-sm text-slate-600 mb-1">เลขอ้างอิงใบเสร็จ</label>
+                  <label className="block text-sm text-slate-600 mb-1">
+                    เลขอ้างอิงใบเสร็จ
+                  </label>
                   <input
                     value={form.ref}
                     onChange={onChange("ref")}
@@ -101,7 +142,9 @@ export default function BrokerTransaction() {
                 </div>
 
                 <div>
-                  <label className="block text-sm text-slate-600 mb-1">จำนวนเงิน (บาท)</label>
+                  <label className="block text-sm text-slate-600 mb-1">
+                    จำนวนเงิน (บาท)
+                  </label>
                   <input
                     type="number"
                     step="0.01"
@@ -114,7 +157,9 @@ export default function BrokerTransaction() {
                 </div>
 
                 <div className="md:col-span-2">
-                  <label className="block text-sm text-slate-600 mb-1">หมายเหตุ</label>
+                  <label className="block text-sm text-slate-600 mb-1">
+                    หมายเหตุ
+                  </label>
                   <textarea
                     rows={5}
                     value={form.note}
@@ -137,7 +182,9 @@ export default function BrokerTransaction() {
 
             {/* รายการล่าสุด (ตัวอย่าง) */}
             <Card>
-              <h3 className="font-semibold text-slate-800 mb-2">รายการล่าสุด</h3>
+              <h3 className="font-semibold text-slate-800 mb-2">
+                รายการล่าสุด
+              </h3>
               <div className="overflow-x-auto rounded-lg border bg-white shadow-sm">
                 <table className="min-w-full text-sm">
                   <thead>
@@ -152,7 +199,10 @@ export default function BrokerTransaction() {
                   </thead>
                   <tbody>
                     {items.map((r, i) => (
-                      <tr key={r.id} className={i % 2 ? "bg-slate-50/60" : "bg-white"}>
+                      <tr
+                        key={r.id}
+                        className={i % 2 ? "bg-slate-50/60" : "bg-white"}
+                      >
                         <td className="py-2 px-3">{fmtDT(r.at)}</td>
                         <td className="py-2 px-3">{r.kind}</td>
                         <td className="py-2 px-3">{r.method}</td>

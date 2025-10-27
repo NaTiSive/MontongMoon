@@ -2,8 +2,20 @@ import React, { useState } from "react";
 import Sidebar from "../../components/Sidebar";
 import Header from "../../components/Header";
 import Card from "../../components/Card";
+import { useAuth } from "../../contexts/AuthContext";
+import { useNavigate } from "react-router-dom";
+import { useEffect } from "react";
+import HeaderWrapper from "../../components/HeaderWrapper";
 
 export default function OwnerTransactions() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!user || user.role !== "owner") {
+      navigate("/login");
+    }
+  }, [user, navigate]);
   const [transactions] = useState([
     {
       id: 1,
@@ -90,12 +102,9 @@ export default function OwnerTransactions() {
 
       {/* Main */}
       <div className="flex-1 min-w-0 flex flex-col">
-        <Header
-          title="รายรับ / รายจ่ายของสวน"
-          subtitle="ตรวจสอบและยืนยันรายการจากผู้รับเหมา พร้อมดูสรุปภาพรวม"
-          name="สมชาย เปี่ยมชัย"
-          role="เจ้าของสวน"
-        />
+
+        <HeaderWrapper title="รายรับ / รายจ่ายของสวน" subtitle="ตรวจสอบและยืนยันรายการจากผู้รับเหมา พร้อมดูสรุปภาพรวม" />
+
 
         <main className="p-4 sm:p-6 space-y-6">
           {/* การ์ดสรุปยอดรวม */}

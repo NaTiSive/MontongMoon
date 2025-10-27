@@ -2,8 +2,20 @@ import React, { useState } from "react";
 import Sidebar from "../../components/Sidebar";
 import Header from "../../components/Header";
 import Card from "../../components/Card";
+import { useAuth } from "../../contexts/AuthContext";
+import { useNavigate } from "react-router-dom";
+import { useEffect } from "react";
+import HeaderWrapper from "../../components/HeaderWrapper";
 
 export default function OwnerOffers({ deadline = "2025-10-04T07:00" }) {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!user || user.role !== "owner") {
+      navigate("/login");
+    }
+  }, [user, navigate]);
   const [search, setSearch] = useState("");
 
   const [offers, setOffers] = useState([
@@ -76,12 +88,9 @@ export default function OwnerOffers({ deadline = "2025-10-04T07:00" }) {
 
       {/* Main */}
       <div className="flex-1 min-w-0 flex flex-col">
-        <Header
-          title="ข้อเสนอจากผู้รับเหมา"
-          subtitle="ตรวจสอบรายละเอียดและยืนยันการทำงานกับผู้รับเหมา"
-          name="สมชาย เข้มแข็ง"
-          role="เจ้าของสวน"
-        />
+
+        <HeaderWrapper title="ข้อเสนอจากผู้รับเหมา" subtitle="ตรวจสอบรายละเอียดและยืนยันการทำงานกับผู้รับเหมา" />
+
 
         <main className="p-4 sm:p-6 space-y-4">
           {/* แถวบน: ค้นหา + แสดงวันสิ้นสุด */}
@@ -145,16 +154,14 @@ export default function OwnerOffers({ deadline = "2025-10-04T07:00" }) {
                     {o.qty}
                   </p>
                   <p>
-                    <span className="font-medium">ราคาที่เสนอ:</span>{" "}
-                    {o.price}
+                    <span className="font-medium">ราคาที่เสนอ:</span> {o.price}
                   </p>
                   <p>
                     <span className="font-medium">วิธีการชำระเงิน:</span>{" "}
                     {o.payment}
                   </p>
                   <p>
-                    <span className="font-medium">เบอร์ติดต่อ:</span>{" "}
-                    {o.phone}
+                    <span className="font-medium">เบอร์ติดต่อ:</span> {o.phone}
                   </p>
                   <p>
                     <span className="font-medium">อีเมล:</span> {o.email}

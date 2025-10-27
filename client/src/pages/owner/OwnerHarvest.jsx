@@ -4,8 +4,20 @@ import Sidebar from "../../components/Sidebar";
 import Header from "../../components/Header";
 import Card from "../../components/Card";
 import { FaMagnifyingGlass } from "react-icons/fa6";
+import { useAuth } from "../../contexts/AuthContext";
+import { useNavigate } from "react-router-dom";
+import { useEffect } from "react";
+import HeaderWrapper from "../../components/HeaderWrapper";
 
 export default function OwnerHarvest() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!user || user.role !== "owner") {
+      navigate("/login");
+    }
+  }, [user, navigate]);
   const [q, setQ] = useState("");
 
   // ข้อมูล mock “รายการบันทึกล่าสุด”
@@ -98,12 +110,9 @@ export default function OwnerHarvest() {
 
       {/* Main */}
       <div className="flex-1 min-w-0 flex flex-col">
-        <Header
-          title="สรุปผลการเก็บเกี่ยวทุเรียน"
-          subtitle="ดูจำนวนผลผลิตที่เก็บได้ในแต่ละเกรดเพื่อวางแผนการขาย"
-          name="สมชาย เปี่ยมชัย"
-          role="เจ้าของสวน"
-        />
+
+        <HeaderWrapper title="สรุปผลการเก็บเกี่ยวทุเรียน" subtitle="ดูจำนวนผลผลิตที่เก็บได้ในแต่ละเกรดเพื่อวางแผนการขาย" />
+
 
         <main className="p-4 sm:p-6 space-y-6">
           {/* การ์ดสรุป 4 ใบ */}

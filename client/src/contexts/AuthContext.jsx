@@ -9,19 +9,25 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     try {
       const raw = localStorage.getItem("user");
-      if (raw) setUser(JSON.parse(raw));
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && parsed.email) setUser(parsed);
+      }
     } catch (err) {
       console.error("Error reading user:", err);
+      localStorage.removeItem("user");
     } finally {
       setLoading(false);
     }
   }, []);
 
-  const login = (userObj) => {
+  // ✅ login & save user
+  const login = async (userObj) => {
     setUser(userObj);
     localStorage.setItem("user", JSON.stringify(userObj));
   };
 
+  // ✅ update user profile
   const updateUser = (patch) => {
     setUser((prev) => {
       const next = { ...(prev || {}), ...patch };
@@ -30,13 +36,23 @@ export function AuthProvider({ children }) {
     });
   };
 
+  // ✅ update approval status (owner→broker)
+  const updateApproval = (status) => {
+    setUser((prev) => {
+      const updated = { ...prev, approvalStatus: status };
+      localStorage.setItem("user", JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  // ✅ logout
   const logout = () => {
     setUser(null);
     localStorage.removeItem("user");
   };
 
   return (
-    <AuthCtx.Provider value={{ user, loading, login, logout, updateUser }}>
+    <AuthCtx.Provider value={{ user, loading, login, logout, updateUser, updateApproval }}>
       {children}
     </AuthCtx.Provider>
   );

@@ -4,8 +4,20 @@ import Sidebar from "../../components/Sidebar";
 import Header from "../../components/Header";
 import Card from "../../components/Card";
 import { FaMagnifyingGlass } from "react-icons/fa6";
+import { useAuth } from "../../contexts/AuthContext";
+import { useNavigate } from "react-router-dom";
+import { useEffect } from "react";
+import HeaderWrapper from "../../components/HeaderWrapper";
 
 export default function OwnerProblems() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!user || user.role !== "owner") {
+      navigate("/login");
+    }
+  }, [user, navigate]);
   // ── ตัวอย่างหลายปัญหา ───────────────────────────────
   const sampleIssues = [
     {
@@ -123,12 +135,9 @@ export default function OwnerProblems() {
 
       {/* Main */}
       <div className="flex-1 min-w-0 flex flex-col">
-        <Header
-          title="ปัญหาที่ผู้รับเหมารายงาน"
-          subtitle="ติดตามสถานการณ์ในสวนและให้คำแนะนำกลับไปยังผู้รับเหมา"
-          name="สมชาย เข้มแข็ง"
-          role="เจ้าของสวน"
-        />
+
+        <HeaderWrapper title="ปัญหาที่ผู้รับเหมารายงาน" subtitle="ติดตามสถานการณ์ในสวนและให้คำแนะนำกลับไปยังผู้รับเหมา" />
+
 
         <main className="p-4 sm:p-6 space-y-4">
           {/* ค้นหา */}

@@ -1,17 +1,27 @@
 // src/pages/owner/OwnerActivities.jsx
 import React, { useMemo, useState } from "react";
 import Sidebar from "../../components/Sidebar";
-import Header from "../../components/Header";
 import Card from "../../components/Card";
 import { FaMagnifyingGlass } from "react-icons/fa6";
-
+import { useAuth } from "../../contexts/AuthContext";
+import { useNavigate } from "react-router-dom";
+import { useEffect } from "react";
+import HeaderWrapper from "../../components/HeaderWrapper";
 
 export default function OwnerActivities() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!user || user.role !== "owner") {
+      navigate("/login");
+    }
+  }, [user, navigate]);
   // ── ข้อมูลตัวอย่าง ──────────────────────────────────
   const activities = [
     {
       id: 1,
-      category: "ปัญหาภาพรวม",   // จะโชว์เป็น badge มุมขวา
+      category: "ปัญหาภาพรวม", // จะโชว์เป็น badge มุมขวา
       title: "กิจกรรมโดย",
       recordedAt: "2025-09-20T11:43:59",
       treeId: "-",
@@ -86,12 +96,9 @@ export default function OwnerActivities() {
 
       {/* Main */}
       <div className="flex-1 min-w-0 flex flex-col">
-        <Header
-          title="กิจกรรมที่ผู้รับเหมาบันทึก"
-          subtitle="ติดตามงานที่เกิดขึ้นในสวนจากผู้รับเหมา"
-          name="สมชาย เข้มแข็ง"
-          role="เจ้าของสวน"
-        />
+
+        <HeaderWrapper title="กิจกรรมที่ผู้รับเหมาบันทึก" subtitle="ติดตามงานที่เกิดขึ้นในสวนจากผู้รับเหมา" />
+
 
         <main className="p-4 sm:p-6 space-y-4">
           {/* ค้นหา */}

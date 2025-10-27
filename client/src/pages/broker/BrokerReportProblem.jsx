@@ -3,8 +3,20 @@ import React, { useMemo, useState } from "react";
 import Sidebar from "../../components/Sidebar";
 import Header from "../../components/Header";
 import Card from "../../components/Card";
+import { useAuth } from "../../contexts/AuthContext";
+import { useNavigate } from "react-router-dom";
+import { useEffect } from "react";
+import HeaderWrapper from "../../components/HeaderWrapper";
 
 export default function BrokerProblems() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!user || user.role !== "broker") {
+      navigate("/login");
+    }
+  }, [user, navigate]);
   // ตัวอย่างรายการต้น (ของจริงเปลี่ยนเป็นดึงจาก API)
   const treeOptions = useMemo(
     () => ["T-001", "T-012", "T-108", "T-205", "T-242", "T-315"],
@@ -29,7 +41,8 @@ export default function BrokerProblems() {
     type: problemTypes[0],
     detail: "",
   });
-  const onChange = (k) => (e) => setForm((p) => ({ ...p, [k]: e.target.value }));
+  const onChange = (k) => (e) =>
+    setForm((p) => ({ ...p, [k]: e.target.value }));
 
   // รายการปัญหาที่ส่ง (mock เริ่มต้น 3 รายการ)
   const [items, setItems] = useState([
@@ -64,10 +77,9 @@ export default function BrokerProblems() {
   const [ftype, setFtype] = useState("ทั้งหมด"); // กรองประเภท
 
   const filtered = items.filter((it) => {
-    const hitText =
-      `${it.id} ${it.treeId} ${it.type} ${it.detail}`
-        .toLowerCase()
-        .includes(q.trim().toLowerCase());
+    const hitText = `${it.id} ${it.treeId} ${it.type} ${it.detail}`
+      .toLowerCase()
+      .includes(q.trim().toLowerCase());
     const hitType = ftype === "ทั้งหมด" ? true : it.type === ftype;
     return hitText && hitType;
   });
@@ -91,7 +103,8 @@ export default function BrokerProblems() {
   // Submit
   const submit = (e) => {
     e.preventDefault();
-    if (!form.treeId.trim()) return alert("กรุณาระบุหมายเลขต้นทุเรียน (Tree ID)");
+    if (!form.treeId.trim())
+      return alert("กรุณาระบุหมายเลขต้นทุเรียน (Tree ID)");
     if (!form.detail.trim()) return alert("กรุณากรอกรายละเอียดปัญหา");
 
     const rec = {
@@ -102,7 +115,7 @@ export default function BrokerProblems() {
       createdAt: new Date().toISOString(),
       status: "ส่งแล้ว",
     };
-    setItems((prev) => [rec, ...prev]);       // เพิ่มไปที่ตารางด้านล่างทันที
+    setItems((prev) => [rec, ...prev]); // เพิ่มไปที่ตารางด้านล่างทันที
     setForm({ treeId: "", type: problemTypes[0], detail: "" });
     alert("ส่งรายงานปัญหาเรียบร้อย");
   };
@@ -116,12 +129,8 @@ export default function BrokerProblems() {
 
       {/* Main */}
       <div className="flex-1 min-w-0 flex flex-col">
-        <Header
-          title="รายงานปัญหาที่เกิดขึ้นในสวน"
-          subtitle="แจ้งรายละเอียดปัญหาเพื่อให้เจ้าของสวนให้คำแนะนำและแก้ไขได้อย่างรวดเร็ว"
-          name="สมชาย เข้มแข็ง"
-          role="เจ้าของสวน"
-        />
+
+        <HeaderWrapper title="รายงานปัญหาที่เกิดขึ้นในสวน" subtitle="แจ้งรายละเอียดปัญหาเพื่อให้เจ้าของสวนให้คำแนะนำและแก้ไขได้อย่างรวดเร็ว" />
 
         <main className="p-4 sm:p-6 pt-28 space-y-6">
           {/* ฟอร์มส่งปัญหา */}
@@ -190,7 +199,9 @@ export default function BrokerProblems() {
           <div className="max-w-5xl mx-auto">
             <Card>
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-2">
-                <h3 className="font-semibold text-slate-800">ปัญหาที่ส่งล่าสุด</h3>
+                <h3 className="font-semibold text-slate-800">
+                  ปัญหาที่ส่งล่าสุด
+                </h3>
 
                 <div className="flex gap-2">
                   <div className="relative">
@@ -200,7 +211,9 @@ export default function BrokerProblems() {
                       placeholder="ค้นหา: รหัส/TreeID/ประเภท/รายละเอียด"
                       className="w-64 border rounded-lg px-3 py-2 pl-9 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
                     />
-                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400">🔍</span>
+                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400">
+                      🔍
+                    </span>
                   </div>
                   <select
                     value={ftype}
@@ -229,18 +242,26 @@ export default function BrokerProblems() {
                   </thead>
                   <tbody>
                     {filtered.map((r, i) => (
-                      <tr key={r.id} className={i % 2 ? "bg-slate-50/60" : "bg-white"}>
+                      <tr
+                        key={r.id}
+                        className={i % 2 ? "bg-slate-50/60" : "bg-white"}
+                      >
                         <td className="py-2 px-3">{r.id}</td>
                         <td className="py-2 px-3">{fmtDT(r.createdAt)}</td>
                         <td className="py-2 px-3">{r.treeId}</td>
                         <td className="py-2 px-3">{r.type}</td>
                         <td className="py-2 px-3">{r.detail}</td>
-                        <td className="py-2 px-3"><StatusBadge s={r.status} /></td>
+                        <td className="py-2 px-3">
+                          <StatusBadge s={r.status} />
+                        </td>
                       </tr>
                     ))}
                     {filtered.length === 0 && (
                       <tr>
-                        <td className="py-6 px-3 text-center text-slate-500" colSpan={6}>
+                        <td
+                          className="py-6 px-3 text-center text-slate-500"
+                          colSpan={6}
+                        >
                           ไม่พบรายการตรงกับเงื่อนไข
                         </td>
                       </tr>

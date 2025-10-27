@@ -1,134 +1,120 @@
+// src/pages/Signup.jsx
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
-
-import PageHeader from "../components/PageHeader";
 import InputField from "../components/InputField";
-import TextArea from "../components/TextArea";
+import PageHeader from "../components/PageHeader";
 import PrimaryButton from "../components/PrimaryButton";
-import SecondaryButton from "../components/SecondaryButton";
+import { useNavigate } from "react-router-dom";
 
 export default function Signup() {
   const navigate = useNavigate();
-
-  // เก็บค่าจากฟอร์ม
   const [form, setForm] = useState({
     name: "",
     phone: "",
-    address: "",
     email: "",
     password: "",
-    confirmPassword: "",
+    confirm: "",
+    address: "",
   });
 
-  // ตรวจสอบข้อมูลเบื้องต้นก่อนส่ง
-  const isValid =
-    form.name.trim() &&
-    form.phone.trim() &&
-    form.address.trim() &&
-    form.email.trim() &&
-    form.password.length >= 6 &&
-    form.password === form.confirmPassword;
+  const handleChange = (e) => {
+    setForm({ ...form, [e.target.name]: e.target.value });
+  };
 
-  const handleChange = (key) => (e) =>
-    setForm((prev) => ({ ...prev, [key]: e.target.value }));
+  const isValid =
+    form.name &&
+    form.phone &&
+    form.email &&
+    form.password &&
+    form.password === form.confirm;
 
   const handleSubmit = (e) => {
     e.preventDefault();
-
     if (!isValid) {
       alert("กรุณากรอกข้อมูลให้ครบ และตรวจสอบว่ารหัสผ่านตรงกัน");
       return;
     }
 
-    // mock การสมัคร
-    console.log("Signup Data:", form);
-    navigate("/login"); // เสร็จแล้วกลับไปหน้า login ชั่วคราว
+    const newBroker = {
+      ...form,
+      role: "broker",
+      approvalStatus: "pending",
+    };
+
+    console.log("Signup Data:", newBroker);
+    alert("สมัครสำเร็จ! โปรดรอเจ้าของสวนอนุมัติบัญชีของคุณ");
+    navigate("/login");
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50">
-      {/* โลโก้ (อยู่ใน public/) */}
-      <img src="/Logo.png" alt="MontongMoon Logo" className="w-50 h-50 " />
-
-      <div className="bg-white shadow-lg rounded-xl p-8 w-full max-w-lg">
+    <div className="min-h-screen bg-gray-50 flex flex-col justify-center items-center">
+      <img
+        src="/Logo.png"
+        alt="Durian Farm"
+        className="rounded-lg w-40 h-40 mb-4"
+      />
+      <div className="bg-white shadow-lg rounded-xl p-8 w-full max-w-md">
         <PageHeader
           title="ลงทะเบียนผู้รับเหมาใหม่"
-          subtitle="กรุณากรอกข้อมูลให้ครบถ้วนเพื่อให้เจ้าของสวนพิจารณา"
+          subtitle="กรอกข้อมูลให้ครบเพื่อสร้างบัญชีของคุณ"
         />
 
         <form onSubmit={handleSubmit}>
           <InputField
-            label="ชื่อ-นามสกุล"
-            placeholder="ชื่อ-นามสกุล"
+            label="ชื่อ - สกุล"
+            name="name"
             value={form.name}
-            onChange={handleChange("name")}
+            onChange={handleChange}
           />
-
           <InputField
             label="เบอร์โทรศัพท์"
-            type="tel"
-            placeholder="กรุณากรอกเบอร์โทรของคุณ"
+            name="phone"
             value={form.phone}
-            onChange={handleChange("phone")}
+            onChange={handleChange}
           />
-
-          <TextArea
-            label="ที่อยู่"
-            placeholder="กรุณากรอกที่อยู่ของคุณ"
-            rows={3}
-            value={form.address}
-            onChange={handleChange("address")}
-          />
-
           <InputField
             label="อีเมล"
             type="email"
-            placeholder="name@example.com"
+            name="email"
             value={form.email}
-            onChange={handleChange("email")}
+            onChange={handleChange}
           />
-
+          <InputField
+            label="ที่อยู่"
+            name="address"
+            value={form.address}
+            onChange={handleChange}
+          />
           <InputField
             label="รหัสผ่าน"
             type="password"
-            placeholder="อย่างน้อย 6 ตัวอักษร"
+            name="password"
             value={form.password}
-            onChange={handleChange("password")}
+            onChange={handleChange}
           />
-
           <InputField
             label="ยืนยันรหัสผ่าน"
             type="password"
-            placeholder="พิมพ์รหัสผ่านอีกครั้ง"
-            value={form.confirmPassword}
-            onChange={handleChange("confirmPassword")}
+            name="confirm"
+            value={form.confirm}
+            onChange={handleChange}
           />
 
-          {!isValid && (
-            <p className="text-xs text-red-500 mt-1 mb-3">
-              *กรุณากรอกข้อมูลให้ครบ และตรวจสอบว่ารหัสผ่านตรงกัน
-            </p>
-          )}
-
-          <div>
-            <PrimaryButton
-              type="submit"
-              title="ลงทะเบียน"
-              className="w-full mt-2 bg-yellow-500 hover:bg-yellow-600"
-              disabled={!isValid}
-            />
-
-            <div className="flex  flex-col justify-center items-center gap-2 mt-4 text-sm text-gray-700">
-              <span
-                onClick={() => navigate("/login")}
-                className="font-bold hover:underline cursor-pointer"
-              >
-                เข้าสู่ระบบ
-              </span>
-              <span>มีบัญชีอยู่แล้ว?</span>
-            </div>
-          </div>
+          <PrimaryButton
+            title="ลงทะเบียน"
+            type="submit"
+            className="w-full mt-4"
+          />
         </form>
+
+        <p className="text-sm text-gray-600 text-center mt-4">
+          มีบัญชีอยู่แล้ว?{" "}
+          <span
+            onClick={() => navigate("/login")}
+            className="text-green-700 hover:underline cursor-pointer font-medium"
+          >
+            กลับไปหน้าเข้าสู่ระบบ
+          </span>
+        </p>
       </div>
     </div>
   );

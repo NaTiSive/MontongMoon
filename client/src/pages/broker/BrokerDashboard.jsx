@@ -1,13 +1,26 @@
-// src/pages/broker/BrokerDashboard.jsx
 import React, { useMemo } from "react";
 import Sidebar from "../../components/Sidebar";
 import Header from "../../components/Header";
 import Card from "../../components/Card";
-import { useAuth } from "../../contexts/AuthContext"; // ✅ ใช้ของจริง
+import { useAuth } from "../../contexts/AuthContext";
+import { useNavigate } from "react-router-dom";
+import { useEffect } from "react";
+import HeaderWrapper from "../../components/HeaderWrapper";
 
 export default function BrokerDashboard() {
-  const { user, updateUser } = useAuth();            // ✅ ดึงจาก Context
-  const status = String(user?.approvalStatus || "pending").toLowerCase();
+  const { user, updateUser } = useAuth();
+  const navigate = useNavigate();
+
+  // 🛡️ Guard กันเข้าผิด role หรือยังไม่ login
+  useEffect(() => {
+    if (!user || user.role !== "broker") {
+      navigate("/login");
+    }
+  }, [user, navigate]);
+
+  if (!user) return null; // รอโหลด context
+
+  const status = user.approvalStatus || "pending";
 
   return (
     <div className="min-h-screen w-full bg-slate-50 text-slate-900 flex">
@@ -20,17 +33,17 @@ export default function BrokerDashboard() {
       <div className="flex-1 min-w-0 flex flex-col">
         <Header
           title="แดชบอร์ดผู้รับเหมา"
-          subtitle={status === "approved" ? "ได้รับการอนุมัติ" : "รอการอนุมัติจากเจ้าของสวน"}
-          name={user?.name || "คุณรับเหมา"}
+          subtitle={
+            status === "approved"
+              ? "สถานะ: ได้รับการอนุมัติจากเจ้าของสวน"
+              : "สถานะ: รอการอนุมัติจากเจ้าของสวน"
+          }
+          name={user?.name || "ผู้รับเหมา"}
           role="ผู้รับเหมา"
         />
 
         <main className="p-4 sm:p-6 pt-28">
-          {status === "pending" ? (
-            <PendingBlock onApproveMock={() => updateUser({ approvalStatus: "approved" })} />
-          ) : (
-            <ApprovedContent />
-          )}
+          {status === "pending" ? <PendingBlock updateUser={updateUser} /> : <ApprovedContent />}
         </main>
       </div>
     </div>
@@ -38,29 +51,31 @@ export default function BrokerDashboard() {
 }
 
 /* ======================= โหมดรออนุมัติ ======================= */
-function PendingBlock({ onApproveMock }) {
+function PendingBlock({ updateUser }) {
   return (
-    <div className="max-w-2xl">
+    <div className="max-w-2xl mx-auto">
       <Card>
-        <h3 className="font-semibold text-slate-800 mb-1">ขั้นตอนต่อไป</h3>
+        <h3 className="font-semibold text-slate-800 mb-1">บัญชีของคุณยังไม่ถูกอนุมัติ</h3>
         <p className="text-sm text-slate-600">
-          เจ้าของสวนจะอนุมัติข้อเสนอของคุณเมื่อได้รับข้อมูลครบถ้วน กรุณายื่นข้อเสนอซื้อเพื่อให้เจ้าของสวนพิจารณา
+          เจ้าของสวนจะอนุมัติข้อเสนอของคุณเมื่อได้รับข้อมูลครบถ้วน
+          กรุณายื่นข้อเสนอซื้อเพื่อให้เจ้าของสวนพิจารณา
         </p>
-
-        <div className="mt-3 flex gap-3">
+        <div className="flex gap-3 mt-4">
           <button
             className="px-4 py-2 rounded-lg bg-amber-500 text-white text-sm hover:bg-amber-600"
-            onClick={() => alert("เปิดฟอร์ม/อัปโหลดเอกสาร (เชื่อมจริงภายหลัง)")}
+            onClick={() => alert("เปิดฟอร์มยื่นข้อเสนอ (จำลอง)")}
           >
-            ยื่นข้อเสนอซื้อทุเรียน
+            📝 ยื่นข้อเสนอซื้อทุเรียน
           </button>
-
-          {/* ปุ่มจำลองอนุมัติ: ใช้เฉพาะตอน DEV เพื่อให้ Sidebar เปลี่ยนเมนูทันที */}
+          {/* ปุ่มนี้สำหรับ dev จำลองการอนุมัติเท่านั้น */}
           <button
-            className="px-3 py-2 rounded-lg bg-emerald-600 text-white text-xs hover:bg-emerald-700"
-            onClick={onApproveMock}
+            className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm hover:bg-emerald-700"
+            onClick={() => {
+              updateUser({ approvalStatus: "approved" });
+              alert("จำลองการอนุมัติสำเร็จ ✅");
+            }}
           >
-            ✅ จำลองอนุมัติบัญชีนี้
+            ✅ จำลองการอนุมัติ
           </button>
         </div>
       </Card>
@@ -82,14 +97,15 @@ function ApprovedContent() {
     { grade: "เกรด B", weight: 850 },
     { grade: "เกรด C", weight: 300 },
   ];
+
   const totalHarvest = useMemo(
     () => harvestSummary.reduce((a, b) => a + b.weight, 0),
     [harvestSummary]
   );
 
   const activities = [
-    { icon: "🔵", text: "บันทึกรายการรายรับ", sub: "บันทึกรายการรายรับ" },
-    { icon: "🟡", text: "ได้รับการยอมรับข้อเสนอแล้ว", sub: "From Broker B" },
+    { icon: "🟢", text: "ได้รับการยอมรับข้อเสนอแล้ว", sub: "สวน MonthongMoon" },
+    { icon: "🟡", text: "บันทึกกิจกรรมรายต้น", sub: "ต้น T-032" },
     { icon: "🔺", text: "มีรายงานปัญหาในโซน C", sub: "ศัตรูพืชระบาด" },
   ];
 
@@ -122,7 +138,8 @@ function ApprovedContent() {
             ))}
           </ul>
           <div className="mt-2 border-t pt-2 text-right text-sm">
-            รวมที่เก็บเกี่ยว <span className="font-semibold">{totalHarvest} kg</span>
+            รวมทั้งหมด{" "}
+            <span className="font-semibold">{totalHarvest} kg</span>
           </div>
         </Card>
       </div>

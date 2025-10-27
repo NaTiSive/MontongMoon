@@ -3,8 +3,20 @@ import React, { useState } from "react";
 import Sidebar from "../../components/Sidebar";
 import Header from "../../components/Header";
 import Card from "../../components/Card";
+import { useAuth } from "../../contexts/AuthContext";
+import { useNavigate } from "react-router-dom";
+import { useEffect } from "react";
+import HeaderWrapper from "../../components/HeaderWrapper";
 
 export default function BrokerHarvest() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!user || user.role !== "broker") {
+      navigate("/login");
+    }
+  }, [user, navigate]);
   const [form, setForm] = useState({
     weight: "",
     grade: "เกรด A",
@@ -56,18 +68,18 @@ export default function BrokerHarvest() {
 
       {/* Main */}
       <div className="flex-1 min-w-0 flex flex-col">
-        <Header
-          title="บันทึกจำนวนผลทุเรียนที่เก็บเกี่ยวได้"
-          subtitle="ระบุจำนวนผลผลิตแยกตามเกรดเพื่อให้เจ้าของสวนวางแผนการขาย"
-          name="สมชาย เข้มแข็ง"
-          role="เจ้าของสวน"
-        />
+
+        <HeaderWrapper title="บันทึกจำนวนผลทุเรียนที่เก็บเกี่ยวได้" subtitle="ระบุจำนวนผลผลิตแยกตามเกรดเพื่อให้เจ้าของสวนวางแผนการขาย" />
+
 
         <main className="p-4 sm:p-6 pt-28">
           <div className="max-w-2xl mx-auto space-y-4">
             {/* Form */}
             <Card>
-              <form onSubmit={submit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <form
+                onSubmit={submit}
+                className="grid grid-cols-1 md:grid-cols-2 gap-4"
+              >
                 <div>
                   <label className="block text-sm text-slate-600 mb-1">
                     จำนวนผลผลิต (กิโล)
