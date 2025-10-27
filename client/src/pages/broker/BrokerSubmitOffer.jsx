@@ -13,6 +13,7 @@ export default function BrokerSubmitOffer() {
   const { state } = useLocation();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   useEffect(() => {
     if (!user || user.role !== "broker") {
@@ -118,18 +119,24 @@ export default function BrokerSubmitOffer() {
   };
 
   return (
-    <div className="min-h-screen w-full bg-slate-50 text-slate-900 flex">
-      {/* Sidebar */}
-      <div className="hidden md:block w-56 lg:w-64 shrink-0 sticky top-0 h-screen bg-white shadow-md">
-        <Sidebar />
-      </div>
-
-      {/* Main */}
+    <div
+      className={`min-h-screen w-full bg-slate-50 text-slate-900 flex flex-col md:flex-row ${
+        isSidebarOpen ? "overflow-hidden md:overflow-auto" : ""
+      }`}
+    >
+      <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
+      {isSidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/40 z-40 md:hidden"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
       <div className="flex-1 min-w-0 flex flex-col">
-
-        <HeaderWrapper title="ยื่นข้อเสนอซื้อทุเรียนจากสวน" subtitle="โปรดระบุรายละเอียดที่ชัดเจนเพื่อให้เจ้าของสวนพิจารณาและตอบรับอย่างรวดเร็ว" />
-
-
+        <HeaderWrapper
+          onMenuClick={() => setIsSidebarOpen(true)}
+          title="ยื่นข้อเสนอ"
+          subtitle="ส่งราคาและรายละเอียดให้เจ้าของสวน"
+        />
         <main className="p-4 sm:p-6 pt-28">
           <div className="max-w-3xl mx-auto space-y-4">
             {/* สรุปสถานะต้น */}

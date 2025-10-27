@@ -11,6 +11,7 @@ import HeaderWrapper from "../../components/HeaderWrapper";
 export default function BrokerTransaction() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   useEffect(() => {
     if (!user || user.role !== "broker") {
@@ -79,18 +80,24 @@ export default function BrokerTransaction() {
   };
 
   return (
-    <div className="min-h-screen w-full bg-slate-50 text-slate-900 flex">
-      {/* Sidebar */}
-      <div className="hidden md:block w-56 lg:w-64 shrink-0 sticky top-0 h-screen bg-white shadow-md">
-        <Sidebar />
-      </div>
-
-      {/* Main */}
+    <div
+      className={`min-h-screen w-full bg-slate-50 text-slate-900 flex flex-col md:flex-row ${
+        isSidebarOpen ? "overflow-hidden md:overflow-auto" : ""
+      }`}
+    >
+      <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
+      {isSidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/40 z-40 md:hidden"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
       <div className="flex-1 min-w-0 flex flex-col">
-
-        <HeaderWrapper title="บันทึกรายรับ / รายจ่าย" subtitle="จ้งรายละเอียดรายการเพื่อให้เจ้าของสวนติดตามได้อย่างรวดเร็ว" />
-
-
+        <HeaderWrapper
+          onMenuClick={() => setIsSidebarOpen(true)}
+          title="บันทึกรายรับรายจ่าย"
+          subtitle="เพิ่ม/แก้ไขรายการทางการเงินของงาน"
+        />
         <main className="p-4 sm:p-6 pt-28">
           <div className="max-w-4xl mx-auto space-y-6">
             <Card>

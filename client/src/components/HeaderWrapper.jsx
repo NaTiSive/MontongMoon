@@ -1,8 +1,9 @@
+// src/components/HeaderWrapper.jsx
 import React from "react";
 import Header from "./Header";
 import { useAuth } from "../contexts/AuthContext";
 
-export default function HeaderWrapper({ title, subtitle }) {
+export default function HeaderWrapper({ title, subtitle, onMenuClick }) {
   const { user } = useAuth();
   const roleLabel =
     user?.role === "owner"
@@ -13,6 +14,7 @@ export default function HeaderWrapper({ title, subtitle }) {
 
   return (
     <Header
+      onMenuClick={onMenuClick}               // ✅ ส่งต่อให้ Header ใช้เปิดเมนู (hamburger)
       title={title}
       subtitle={subtitle}
       name={user?.name || "ไม่ระบุชื่อ"}

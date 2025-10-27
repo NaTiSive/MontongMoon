@@ -1,37 +1,54 @@
-import React, { useMemo } from "react";
+// src/pages/broker/BrokerDashboard.jsx
+import React, { useMemo, useState, useEffect } from "react";
 import Sidebar from "../../components/Sidebar";
 import Header from "../../components/Header";
 import Card from "../../components/Card";
 import { useAuth } from "../../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
-import { useEffect } from "react";
-import HeaderWrapper from "../../components/HeaderWrapper";
 
 export default function BrokerDashboard() {
   const { user, updateUser } = useAuth();
   const navigate = useNavigate();
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false); // ☰ toggle sidebar
 
   // 🛡️ Guard กันเข้าผิด role หรือยังไม่ login
   useEffect(() => {
-    if (!user || user.role !== "broker") {
-      navigate("/login");
-    }
+    if (!user) return; // รอโหลดจาก AuthContext ก่อน
+    if (user.role !== "broker") navigate("/login");
   }, [user, navigate]);
 
-  if (!user) return null; // รอโหลด context
+  if (!user) {
+    return (
+      <div className="h-screen flex items-center justify-center text-gray-600">
+        กำลังโหลดข้อมูลผู้ใช้...
+      </div>
+    );
+  }
 
   const status = user.approvalStatus || "pending";
 
   return (
-    <div className="min-h-screen w-full bg-slate-50 text-slate-900 flex">
-      {/* Sidebar */}
-      <div className="hidden md:block w-56 lg:w-64 shrink-0 sticky top-0 h-screen bg-white shadow-md">
-        <Sidebar />
-      </div>
+    // flex-col บนมือถือ, md:flex-row บนจอใหญ่ + กันสกรอลล์พื้นหลังเมื่อเปิดเมนู
+    <div
+      className={`min-h-screen w-full bg-slate-50 text-slate-900 flex flex-col md:flex-row ${
+        isSidebarOpen ? "overflow-hidden md:overflow-auto" : ""
+      }`}
+    >
+      {/* Sidebar (responsive drawer) */}
+      <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
+
+      {/* Overlay มืดหลัง Sidebar (เฉพาะมือถือ) */}
+      {isSidebarOpen && (
+        <div
+          onClick={() => setIsSidebarOpen(false)}
+          className="fixed inset-0 bg-black/40 z-40 md:hidden"
+        />
+      )}
 
       {/* Main */}
-      <div className="flex-1 min-w-0 flex flex-col">
+      <div className="flex-1 flex flex-col min-w-0">
         <Header
+          onMenuClick={() => setIsSidebarOpen(true)} // ☰ เปิด sidebar (เฉพาะ mobile)
           title="แดชบอร์ดผู้รับเหมา"
           subtitle={
             status === "approved"
@@ -43,7 +60,11 @@ export default function BrokerDashboard() {
         />
 
         <main className="p-4 sm:p-6 pt-28">
-          {status === "pending" ? <PendingBlock updateUser={updateUser} /> : <ApprovedContent />}
+          {status === "pending" ? (
+            <PendingBlock updateUser={updateUser} />
+          ) : (
+            <ApprovedContent />
+          )}
         </main>
       </div>
     </div>
@@ -55,7 +76,9 @@ function PendingBlock({ updateUser }) {
   return (
     <div className="max-w-2xl mx-auto">
       <Card>
-        <h3 className="font-semibold text-slate-800 mb-1">บัญชีของคุณยังไม่ถูกอนุมัติ</h3>
+        <h3 className="font-semibold text-slate-800 mb-1">
+          บัญชีของคุณยังไม่ถูกอนุมัติ
+        </h3>
         <p className="text-sm text-slate-600">
           เจ้าของสวนจะอนุมัติข้อเสนอของคุณเมื่อได้รับข้อมูลครบถ้วน
           กรุณายื่นข้อเสนอซื้อเพื่อให้เจ้าของสวนพิจารณา
@@ -67,7 +90,8 @@ function PendingBlock({ updateUser }) {
           >
             📝 ยื่นข้อเสนอซื้อทุเรียน
           </button>
-          {/* ปุ่มนี้สำหรับ dev จำลองการอนุมัติเท่านั้น */}
+
+          {/* ปุ่มสำหรับ dev จำลองการอนุมัติ */}
           <button
             className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm hover:bg-emerald-700"
             onClick={() => {
@@ -138,8 +162,7 @@ function ApprovedContent() {
             ))}
           </ul>
           <div className="mt-2 border-t pt-2 text-right text-sm">
-            รวมทั้งหมด{" "}
-            <span className="font-semibold">{totalHarvest} kg</span>
+            รวมทั้งหมด <span className="font-semibold">{totalHarvest} kg</span>
           </div>
         </Card>
       </div>

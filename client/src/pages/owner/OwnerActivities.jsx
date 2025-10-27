@@ -1,27 +1,38 @@
 // src/pages/owner/OwnerActivities.jsx
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import Sidebar from "../../components/Sidebar";
 import Card from "../../components/Card";
 import { FaMagnifyingGlass } from "react-icons/fa6";
 import { useAuth } from "../../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
-import { useEffect } from "react";
 import HeaderWrapper from "../../components/HeaderWrapper";
 
 export default function OwnerActivities() {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
   const navigate = useNavigate();
 
+  // ✅ toggle sidebar (mobile drawer)
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+  // ✅ guard: login + role
   useEffect(() => {
-    if (!user || user.role !== "owner") {
-      navigate("/login");
-    }
-  }, [user, navigate]);
+    if (loading) return;
+    if (!user || user.role !== "owner") navigate("/login");
+  }, [user, loading, navigate]);
+
+  if (loading) {
+    return (
+      <div className="h-screen flex items-center justify-center text-gray-600">
+        กำลังโหลดข้อมูลผู้ใช้...
+      </div>
+    );
+  }
+
   // ── ข้อมูลตัวอย่าง ──────────────────────────────────
   const activities = [
     {
       id: 1,
-      category: "ปัญหาภาพรวม", // จะโชว์เป็น badge มุมขวา
+      category: "ปัญหาภาพรวม",
       title: "กิจกรรมโดย",
       recordedAt: "2025-09-20T11:43:59",
       treeId: "-",
@@ -41,7 +52,6 @@ export default function OwnerActivities() {
       address: "bangkok",
       detail: "test test",
     },
-    // เพิ่มได้เรื่อย ๆ ...
   ];
 
   // ── ค้นหา ────────────────────────────────────────────
@@ -88,19 +98,31 @@ export default function OwnerActivities() {
 
   // ── UI ──────────────────────────────────────────────
   return (
-    <div className="min-h-screen w-full bg-slate-50 text-slate-900 flex">
-      {/* Sidebar */}
-      <div className="hidden md:block w-56 lg:w-64 shrink-0 sticky top-0 h-screen bg-white shadow-md">
-        <Sidebar />
-      </div>
+    <div
+      className={`min-h-screen w-full bg-slate-50 text-slate-900 flex flex-col md:flex-row ${
+        isSidebarOpen ? "overflow-hidden md:overflow-auto" : ""
+      }`}
+    >
+      {/* ✅ Sidebar: mobile drawer + desktop sticky */}
+      <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
+
+      {/* ✅ Overlay มืด (มือถือ) */}
+      {isSidebarOpen && (
+        <div
+          onClick={() => setIsSidebarOpen(false)}
+          className="fixed inset-0 bg-black/40 z-40 md:hidden"
+        />
+      )}
 
       {/* Main */}
       <div className="flex-1 min-w-0 flex flex-col">
+        <HeaderWrapper
+          onMenuClick={() => setIsSidebarOpen(true)}
+          title="กิจกรรมที่ผู้รับเหมาบันทึก"
+          subtitle="ติดตามงานที่เกิดขึ้นในสวนจากผู้รับเหมา"
+        />
 
-        <HeaderWrapper title="กิจกรรมที่ผู้รับเหมาบันทึก" subtitle="ติดตามงานที่เกิดขึ้นในสวนจากผู้รับเหมา" />
-
-
-        <main className="p-4 sm:p-6 space-y-4">
+        <main className="p-4 sm:p-6 pt-28 space-y-4">
           {/* ค้นหา */}
           <div className="flex justify-end">
             <div className="relative w-full sm:w-80">

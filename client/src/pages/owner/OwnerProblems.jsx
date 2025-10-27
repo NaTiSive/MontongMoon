@@ -12,6 +12,7 @@ import HeaderWrapper from "../../components/HeaderWrapper";
 export default function OwnerProblems() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   useEffect(() => {
     if (!user || user.role !== "owner") {
@@ -127,19 +128,26 @@ export default function OwnerProblems() {
   };
 
   return (
-    <div className="min-h-screen w-full bg-slate-50 text-slate-900 flex">
-      {/* Sidebar */}
-      <div className="hidden md:block w-56 lg:w-64 shrink-0 sticky top-0 h-screen bg-white shadow-md">
-        <Sidebar />
-      </div>
+    <div
+      className={`min-h-screen w-full bg-slate-50 text-slate-900 flex flex-col md:flex-row ${
+        isSidebarOpen ? "overflow-hidden md:overflow-auto" : ""
+      }`}
+    >
+      <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
+      {isSidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/40 z-40 md:hidden"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
 
-      {/* Main */}
       <div className="flex-1 min-w-0 flex flex-col">
-
-        <HeaderWrapper title="ปัญหาที่ผู้รับเหมารายงาน" subtitle="ติดตามสถานการณ์ในสวนและให้คำแนะนำกลับไปยังผู้รับเหมา" />
-
-
-        <main className="p-4 sm:p-6 space-y-4">
+        <HeaderWrapper
+          onMenuClick={() => setIsSidebarOpen(true)}
+          title="ปัญหาที่ผู้รับเหมารายงาน"
+          subtitle="ติดตามสถานการณ์ในสวนและให้คำแนะนำกลับไปยังผู้รับเหมา"
+        />
+        <main className="p-4 sm:p-6 pt-28 space-y-4">
           {/* ค้นหา */}
           <div className="flex justify-end">
             <div className="relative w-full sm:w-80">

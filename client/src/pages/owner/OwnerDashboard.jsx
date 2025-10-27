@@ -1,26 +1,31 @@
-import React, { useState } from "react";
+// src/pages/owner/OwnerDashboard.jsx
+import React, { useState, useEffect } from "react";
 import Card from "../../components/Card";
-import PrimaryButton from "../../components/PrimaryButton";
-import SearchBar from "../../components/Searchbar";
 import Sidebar from "../../components/Sidebar";
 import { useAuth } from "../../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
-import { useEffect } from "react";
 import HeaderWrapper from "../../components/HeaderWrapper";
 
-// ถ้ามี Card / Button / SearchBar ของคุณเองแล้ว ค่อยเปลี่ยนมาใช้ component เหล่านั้นได้
-
 export default function OwnerDashboard() {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
   const navigate = useNavigate();
 
+  // ✅ toggle sidebar (สำหรับมือถือ)
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
   useEffect(() => {
+    if (loading) return;   
     if (!user || user.role !== "owner") {
       navigate("/login");
     }
-  }, [user, navigate]);
-  // --- mock states ---
+  }, [user,loading, navigate]);
+
+  if (loading) {
+  return <div className="h-screen flex items-center justify-center text-gray-600">กำลังโหลดข้อมูลผู้ใช้…</div>;
+}
+
   const [deadline, setDeadline] = useState("2025-10-04T07:00");
+
   const treeStatus = [
     { key: "ปกติ", value: 2, bg: "bg-green-100", text: "text-green-700" },
     { key: "มีปัญหา", value: 1, bg: "bg-rose-100", text: "text-rose-700" },
@@ -37,11 +42,7 @@ export default function OwnerDashboard() {
 
   const activities = [
     { icon: "📝", text: "บันทึกรายการรายรับ", when: "ก่อนหน้า 3 ชม." },
-    {
-      icon: "📨",
-      text: "ได้รับการยื่นข้อเสนอแล้วจาก Broker B",
-      when: "เมื่อวาน",
-    },
+    { icon: "📨", text: "ได้รับการยื่นข้อเสนอแล้วจาก Broker B", when: "เมื่อวาน" },
     { icon: "⚠️", text: "มีรายงานปัญหาใบไหม้ในโซน C", when: "2 วันก่อน" },
   ];
 
@@ -53,29 +54,36 @@ export default function OwnerDashboard() {
   ];
 
   return (
-    // ====== Layout ครอบทั้งหน้า: Sidebar ซ้าย + Main ขวา ======
-    <div className="min-h-screen w-full bg-slate-50 text-slate-900 flex">
-      {/* Sidebar (fixed width) */}
+    // ✅ มือถือ: เรียงแนวตั้ง / เดสก์ท็อป: เรียงแนวนอน
+    <div
+      className={`min-h-screen w-full bg-slate-50 text-slate-900 flex flex-col md:flex-row ${
+        isSidebarOpen ? "overflow-hidden md:overflow-auto" : ""
+      }`}
+    >
+      {/* ✅ Sidebar แบบ Drawer (มือถือ) + Fixed (เดสก์ท็อป) */}
+      <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
 
-      <div className="hhidden md:block w-56 lg:w-64 shrink-0 sticky top-0 h-screen z-50 bg-white shadow-md">
-        <Sidebar />
-      </div>
+      {/* ✅ Overlay มืดสำหรับมือถือ คลิกเพื่อปิด */}
+      {isSidebarOpen && (
+        <div
+          onClick={() => setIsSidebarOpen(false)}
+          className="fixed inset-0 bg-black/40 z-40 md:hidden"
+        />
+      )}
 
-      {/* Main content: ให้กินพื้นที่ที่เหลือ และเลื่อน scroll ได้ */}
+      {/* Main */}
       <div className="flex-1 min-w-0 flex flex-col">
-        {/* Top Header (คงอยู่ด้านบนของ main) */}
-        <div className="full">
+        {/* ✅ ส่ง onMenuClick ให้ Header ผ่าน HeaderWrapper เพื่อให้ปุ่ม ☰ เปิดเมนูได้ */}
+        <HeaderWrapper
+          onMenuClick={() => setIsSidebarOpen(true)}
+          title="แดชบอร์ดเจ้าของสวน"
+          subtitle="ติดตามภาพรวมของสวนของคุณ"
+        />
 
-
-          <HeaderWrapper title="แดชบอร์ดเจ้าของสวน" subtitle="ติดตามภาพรวมของสวนของคุณ" />
-
-          
-        </div>
-        {/* เนื้อหาหลักของหน้า */}
-        <main className="p-4 sm:p-6">
+        <main className="p-4 sm:p-6 pt-28">
           {/* แถว: Deadline + สถานะต้นทุเรียน */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {/* กล่องกำหนดวันสิ้นสุดการรับข้อเสนอ */}
+            {/* ✅ แก้ปุ่มหลุดจาก Card: จัด layout ใหม่ให้ปลอดภัยทุกขนาดจอ */}
             <Card>
               <h3 className="font-semibold text-gray-800 mb-2">
                 กำหนดวันสิ้นสุดการรับข้อเสนอ
@@ -84,7 +92,9 @@ export default function OwnerDashboard() {
                 ใช้เพื่อควบคุมรอบการยื่นข้อเสนอของผู้รับเหมา หากหมดเขต
                 ระบบจะปิดการยื่นอัตโนมัติ
               </p>
-              <div className="flex gap-3 items-end">
+
+              {/* มือถือวางเป็นคอลัมน์ / จอใหญ่ค่อยวางเป็นแถว */}
+              <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
                 <div className="flex-1">
                   <input
                     type="datetime-local"
@@ -101,7 +111,8 @@ export default function OwnerDashboard() {
                   บันทึกกำหนด
                 </button>
               </div>
-              <p className="text-xs text-gray-400 mt-2">
+
+              <p className="text-xs text-gray-400 mt-3">
                 อัปเดตครั้งล่าสุด: 3 ต.ค. 2568 02:13
               </p>
             </Card>
@@ -125,13 +136,11 @@ export default function OwnerDashboard() {
             </Card>
           </div>
 
-          {/* แถว: กราฟ (placeholder) */}
+          {/* กราฟ placeholder */}
           <Card>
             <div className="flex justify-between items-center mb-2">
               <h3 className="font-semibold text-gray-800">รายรับ vs รายจ่าย</h3>
-              <span className="text-xs text-gray-500">
-                ในรอบ 30 วันที่ผ่านมา
-              </span>
+              <span className="text-xs text-gray-500">ในรอบ 30 วันที่ผ่านมา</span>
             </div>
             <div className="h-56 bg-gray-100 rounded-lg flex items-center justify-center text-gray-500">
               กราฟแสดงข้อมูล (placeholder)
@@ -140,7 +149,6 @@ export default function OwnerDashboard() {
 
           {/* แถว: กิจกรรมล่าสุด + ข้อเสนอ + สรุปเก็บเกี่ยว */}
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 mt-4">
-            {/* กิจกรรมล่าสุด */}
             <Card>
               <h3 className="font-semibold text-gray-800 mb-3">
                 กิจกรรมล่าสุด
@@ -158,7 +166,6 @@ export default function OwnerDashboard() {
               </ul>
             </Card>
 
-            {/* ข้อเสนอจากผู้รับเหมา */}
             <Card>
               <h3 className="font-semibold text-gray-800 mb-3">
                 ข้อเสนอจากผู้รับเหมา
@@ -167,9 +174,7 @@ export default function OwnerDashboard() {
                 {offers.map((o, idx) => (
                   <Card key={idx}>
                     <div>
-                      <div className="font-medium text-gray-800">
-                        {o.broker}
-                      </div>
+                      <div className="font-medium text-gray-800">{o.broker}</div>
                       <div className="text-xs text-gray-500">
                         {o.price} • {o.qty} kg
                       </div>
@@ -191,12 +196,9 @@ export default function OwnerDashboard() {
                   </Card>
                 ))}
               </div>
-              <p className="text-xs text-gray-400 mt-2">
-                * ปุ่มยังไม่เชื่อมระบบ
-              </p>
+              <p className="text-xs text-gray-400 mt-2">* ปุ่มยังไม่เชื่อมระบบ</p>
             </Card>
 
-            {/* สรุปการเก็บเกี่ยว */}
             <Card>
               <h3 className="font-semibold text-gray-800 mb-3">
                 สรุปการเก็บเกี่ยว
