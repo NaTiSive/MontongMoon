@@ -6,8 +6,8 @@ import Card from "../../components/Card";
 import { useAuth } from "../../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import {
-  listContracts,
-  approveContractAndBroker,
+  listAllContracts,
+  approveContract,
   rejectContract,
 } from "../../api/contracts";
 
@@ -16,63 +16,68 @@ export default function OwnerOffers() {
   const navigate = useNavigate();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-  useEffect(() => {
-    if (!user || user.role !== "owner") {
-      navigate("/login");
-    }
-  }, [user, navigate]);
-
-  const [rows, setRows] = useState([]);
+  const [offers, setOffers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
-  const load = () => {
-    try {
-      setLoading(true);
-      const pending = listContracts({ status: "รอการพิจารณา" });
-      setRows(pending);
-      setErr("");
-    } catch (e) {
-      setErr(e?.message || "โหลดข้อเสนอไม่สำเร็จ");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
-    load();
+    if (!user || user.role !== "owner") navigate("/login");
+  }, [user, navigate]);
+
+  // โหลดข้อเสนอทั้งหมด
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        setLoading(true);
+        const all = await listAllContracts();
+        if (!alive) return;
+        // เรียงตามวันที่ใหม่สุดก่อน
+        const sorted = all.sort(
+          (a, b) => new Date(b.contract_date) - new Date(a.contract_date)
+        );
+        setOffers(sorted);
+      } catch (e) {
+        if (!alive) return;
+        setErr(e?.message || "โหลดข้อเสนอไม่สำเร็จ");
+      } finally {
+        if (!alive) return;
+        setLoading(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
   }, []);
 
-  const onApprove = (id) => {
+  const handleApprove = async (id) => {
+    if (!window.confirm("ยืนยันการอนุมัติข้อเสนอนี้หรือไม่?")) return;
     try {
-      const row = approveContractAndBroker(id);
-      alert(
-        `อนุมัติข้อเสนอสำเร็จ\nContract: ${row.contract_id}\nBroker #${row.broker_id} ได้รับการอนุมัติใช้งานระบบแล้ว`
-      );
-      load();
+      await approveContract(id);
+      const all = await listAllContracts();
+      setOffers(all);
+      alert("อนุมัติข้อเสนอเรียบร้อย ✅");
     } catch (e) {
-      alert(e?.message || "อนุมัติไม่สำเร็จ");
+      alert(e?.message || "ไม่สามารถอนุมัติข้อเสนอได้");
     }
   };
 
-  const onReject = (id) => {
-    const reason = prompt("เหตุผลการปฏิเสธ (ไม่บังคับ)", "");
+  const handleReject = async (id) => {
+    if (!window.confirm("ปฏิเสธข้อเสนอนี้หรือไม่?")) return;
     try {
-      rejectContract(id, reason || "");
-      alert("ปฏิเสธข้อเสนอแล้ว");
-      load();
+      await rejectContract(id);
+      const all = await listAllContracts();
+      setOffers(all);
+      alert("ปฏิเสธข้อเสนอเรียบร้อย ❌");
     } catch (e) {
-      alert(e?.message || "ปฏิเสธไม่สำเร็จ");
+      alert(e?.message || "ไม่สามารถปฏิเสธข้อเสนอได้");
     }
   };
 
   const fmtDT = (iso) =>
     new Date(iso).toLocaleString("th-TH", {
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
+      dateStyle: "medium",
+      timeStyle: "short",
     });
 
   return (
@@ -92,69 +97,77 @@ export default function OwnerOffers() {
       <div className="flex-1 min-w-0 flex flex-col">
         <HeaderWrapper
           onMenuClick={() => setIsSidebarOpen(true)}
-          title="ข้อเสนอจากนายหน้า"
-          subtitle="ตรวจสอบและอนุมัติข้อเสนอ"
+          title="ข้อเสนอจากผู้รับเหมา"
+          subtitle="พิจารณาข้อเสนอและอนุมัติหรือปฏิเสธ"
         />
-
         <main className="p-4 sm:p-6 pt-28">
-          <div className="max-w-4xl mx-auto space-y-4">
-            <Card>
-              {loading ? (
-                <div className="text-sm text-slate-500">กำลังโหลด...</div>
-              ) : err ? (
-                <div className="text-sm text-rose-600">{err}</div>
-              ) : rows.length === 0 ? (
-                <div className="text-sm text-slate-600">
-                  ยังไม่มีข้อเสนอรอการพิจารณา
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {rows.map((r) => (
-                    <div
-                      key={r.contract_id}
-                      className="rounded-xl bg-white border p-4"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="font-semibold">
-                          Contract: {r.contract_id}
-                        </div>
-                        <div className="text-xs text-slate-500">
-                          ส่งเมื่อ {fmtDT(r.contract_date)}
-                        </div>
+          <div className="max-w-5xl mx-auto space-y-4">
+            {loading ? (
+              <Card>กำลังโหลดข้อมูล...</Card>
+            ) : err ? (
+              <Card className="text-rose-600">{err}</Card>
+            ) : offers.length === 0 ? (
+              <Card className="text-slate-600 text-sm">
+                ยังไม่มีข้อเสนอจากผู้รับเหมา
+              </Card>
+            ) : (
+              offers.map((o) => (
+                <Card key={o.contract_id} className="space-y-3">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <div className="font-semibold text-lg">
+                        #{o.contract_id.slice(0, 8)} — {o.status}
                       </div>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm mt-2">
-                        <Info label="Broker ID" value={`#${r.broker_id}`} />
-                        <Info
-                          label="ปริมาณ"
-                          value={`${r.qtt_estimate?.toLocaleString("th-TH")} กก.`}
-                        />
-                        <Info
-                          label="ราคาเสนอ"
-                          value={`${r.offerprice?.toLocaleString("th-TH")} บาท/กก.`}
-                        />
-                        <Info label="วิธีชำระเงิน" value={r.payment_term} />
-                        <Info label="หมายเหตุ" value={r.note || "-"} />
-                        <Info label="สถานะ" value={r.status} />
-                      </div>
-                      <div className="flex gap-2 mt-3">
-                        <button
-                          onClick={() => onApprove(r.contract_id)}
-                          className="px-3 py-2 rounded-lg bg-emerald-700 text-white text-sm"
-                        >
-                          อนุมัติ
-                        </button>
-                        <button
-                          onClick={() => onReject(r.contract_id)}
-                          className="px-3 py-2 rounded-lg border text-sm"
-                        >
-                          ปฏิเสธ
-                        </button>
+                      <div className="text-sm text-slate-600">
+                        ผู้รับเหมา: {o.broker_id ?? "-"} • วันที่ส่ง{" "}
+                        {fmtDT(o.contract_date)}
                       </div>
                     </div>
-                  ))}
-                </div>
-              )}
-            </Card>
+                    <span
+                      className={`px-3 py-1 rounded-lg text-sm font-medium ${
+                        o.status === "รอการพิจารณา"
+                          ? "bg-amber-100 text-amber-700"
+                          : o.status === "ยอมรับ"
+                          ? "bg-emerald-100 text-emerald-700"
+                          : "bg-rose-100 text-rose-700"
+                      }`}
+                    >
+                      {o.status}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-2 text-sm">
+                    <Info
+                      label="ปริมาณ"
+                      value={`${Number(o.qtt_estimate).toLocaleString("th-TH")} กก.`}
+                    />
+                    <Info
+                      label="ราคาเสนอ"
+                      value={`${Number(o.offerprice).toLocaleString("th-TH")} บาท/กก.`}
+                    />
+                    <Info label="การชำระเงิน" value={o.payment_term} />
+                    <Info label="หมายเหตุ" value={o.note || "-"} />
+                  </div>
+
+                  {o.status === "รอการพิจารณา" && (
+                    <div className="flex gap-3 mt-2">
+                      <button
+                        onClick={() => handleApprove(o.contract_id)}
+                        className="px-3 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-sm"
+                      >
+                        ✅ อนุมัติ
+                      </button>
+                      <button
+                        onClick={() => handleReject(o.contract_id)}
+                        className="px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-sm"
+                      >
+                        ❌ ปฏิเสธ
+                      </button>
+                    </div>
+                  )}
+                </Card>
+              ))
+            )}
           </div>
         </main>
       </div>

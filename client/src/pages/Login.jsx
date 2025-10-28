@@ -5,7 +5,8 @@ import PageHeader from "../components/PageHeader";
 import { useNavigate } from "react-router-dom";
 import PrimaryButton from "../components/PrimaryButton";
 import { useAuth } from "../contexts/AuthContext";
-import { getBrokerApproval } from "../api/contracts";
+// ❌ ลบ import ที่ไม่มีจริงออก
+// import { getBrokerApproval } from "../api/contracts";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -52,6 +53,17 @@ export default function Login() {
     },
   ];
 
+  // helper: อ่านสถานะล่าสุดของ broker จาก LocalStorage (ถ้ามี)
+  const getBrokerApprovalFromLS = (broker_id, fallback = "pending") => {
+    try {
+      const arr = JSON.parse(localStorage.getItem("mm:brokers@v1") || "[]");
+      const found = arr.find((b) => b.broker_id === broker_id);
+      return found?.approvalStatus || fallback;
+    } catch {
+      return fallback;
+    }
+  };
+
   const handleLogin = (e) => {
     e.preventDefault();
 
@@ -64,13 +76,13 @@ export default function Login() {
       return;
     }
 
-    // ถ้าเป็น broker → ดึงสถานะอนุมัติล่าสุดที่ owner เซ็ตไว้ (ผ่าน OwnerOffers)
+    // ถ้าเป็น broker → อัปเดต approvalStatus จาก LocalStorage ถ้ามี
     if (foundUser.role === "broker" && foundUser.broker_id != null) {
-      try {
-        const latest = getBrokerApproval(foundUser.broker_id);
-        // override approvalStatus ตามจริง
-        foundUser.approvalStatus = latest;
-      } catch {}
+      const latest = getBrokerApprovalFromLS(
+        foundUser.broker_id,
+        foundUser.approvalStatus || "pending"
+      );
+      foundUser.approvalStatus = latest;
     }
 
     login(foundUser);

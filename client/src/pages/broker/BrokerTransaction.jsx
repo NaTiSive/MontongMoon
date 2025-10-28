@@ -1,12 +1,10 @@
-// src/pages/broker/BrokerTransaction.jsx
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Sidebar from "../../components/Sidebar";
-import Header from "../../components/Header";
+import HeaderWrapper from "../../components/HeaderWrapper";
 import Card from "../../components/Card";
 import { useAuth } from "../../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
-import { useEffect } from "react";
-import HeaderWrapper from "../../components/HeaderWrapper";
+import { listBrokerContracts } from "../../api/contracts";
 
 export default function BrokerTransaction() {
   const { user } = useAuth();
@@ -14,213 +12,137 @@ export default function BrokerTransaction() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   useEffect(() => {
-    if (!user || user.role !== "broker") {
-      navigate("/login");
-    }
+    if (!user || user.role !== "broker") navigate("/login");
   }, [user, navigate]);
 
-  const [form, setForm] = useState({
-    kind: "รายรับ", // รายรับ | รายจ่าย
-    method: "เงินสด", // เงินสด | โอนเงิน | เช็ค
-    ref: "", // เลขอ้างอิงใบเสร็จ
-    amount: "", // จำนวนเงิน (บาท)
-    note: "", // หมายเหตุ
-  });
+  const disabled = user?.approvalStatus !== "approved";
 
-  const [items, setItems] = useState([
-    {
-      id: "TX-001",
-      kind: "รายรับ",
-      method: "โอนเงิน",
-      ref: "INV-2025-001",
-      amount: 10850,
-      note: "ขายผลผลิต",
-      at: "2025-10-03T11:46:09",
-    },
-  ]);
+  const [accepted, setAccepted] = useState([]);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      if (!user) return;
+      const mine = await listBrokerContracts(user.broker_id);
+      const acc = mine.filter((c) => c.status === "ยอมรับ");
+      if (alive) setAccepted(acc);
+    })();
+    return () => { alive = false; };
+  }, [user]);
 
-  const onChange = (k) => (e) =>
-    setForm((p) => ({ ...p, [k]: e.target.value }));
+  // mock ledger
+  const [rows, setRows] = useState([]);
+  const [form, setForm] = useState({ desc: "", type: "รายรับ", amount: "" });
+  const update = (k) => (e) => setForm((p) => ({ ...p, [k]: e.target.value }));
 
-  const fmt = (n) =>
-    n.toLocaleString("th-TH", { style: "currency", currency: "THB" });
-  const fmtDT = (iso) =>
-    new Date(iso).toLocaleString("th-TH", {
-      year: "numeric",
-      month: "short",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+  const total = useMemo(() => {
+    return rows.reduce((sum, r) => sum + (r.type === "รายรับ" ? r.amount : -r.amount), 0);
+  }, [rows]);
 
-  const submit = (e) => {
-    e.preventDefault();
+  const add = () => {
+    if (disabled) return;
     const amt = Number(form.amount);
-    if (!amt || amt <= 0) return alert("กรุณากรอกจำนวนเงินเป็นตัวเลขมากกว่า 0");
-    if (!form.ref.trim()) return alert("กรุณากรอกเลขอ้างอิงใบเสร็จ");
-
-    const rec = {
-      id: `TX-${String(items.length + 1).padStart(3, "0")}`,
-      kind: form.kind,
-      method: form.method,
-      ref: form.ref.trim(),
-      amount: amt,
-      note: form.note.trim() || "-",
-      at: new Date().toISOString(),
-    };
-    setItems((prev) => [rec, ...prev]);
-    setForm({
-      kind: "รายรับ",
-      method: "เงินสด",
-      ref: "",
-      amount: "",
-      note: "",
-    });
-    alert("ส่งรายงานให้เจ้าของสวนเรียบร้อย");
+    if (!form.desc || !Number.isFinite(amt) || amt <= 0) return alert("กรอกข้อมูลให้ถูกต้อง");
+    setRows((r) => [{ id: crypto.randomUUID(), ...form, amount: amt }, ...r]);
+    setForm({ desc: "", type: "รายรับ", amount: "" });
   };
 
   return (
-    <div
-      className={`min-h-screen w-full bg-slate-50 text-slate-900 flex flex-col md:flex-row ${
-        isSidebarOpen ? "overflow-hidden md:overflow-auto" : ""
-      }`}
-    >
+    <div className={`min-h-screen w-full bg-slate-50 text-slate-900 flex flex-col md:flex-row ${
+      isSidebarOpen ? "overflow-hidden md:overflow-auto" : ""
+    }`}>
       <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
       {isSidebarOpen && (
-        <div
-          className="fixed inset-0 bg-black/40 z-40 md:hidden"
-          onClick={() => setIsSidebarOpen(false)}
-        />
+        <div className="fixed inset-0 bg-black/40 z-40 md:hidden" onClick={() => setIsSidebarOpen(false)} />
       )}
+
       <div className="flex-1 min-w-0 flex flex-col">
         <HeaderWrapper
           onMenuClick={() => setIsSidebarOpen(true)}
-          title="บันทึกรายรับรายจ่าย"
-          subtitle="เพิ่ม/แก้ไขรายการทางการเงินของงาน"
+          title="ธุรกรรมนายหน้า"
+          subtitle="บันทึกรายรับรายจ่าย (เฉพาะบัญชีที่ได้รับอนุมัติ)"
         />
+
         <main className="p-4 sm:p-6 pt-28">
-          <div className="max-w-4xl mx-auto space-y-6">
+          <div className="max-w-4xl mx-auto space-y-4">
+            {disabled && (
+              <Card>
+                <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                  บัญชีของคุณยังไม่ได้รับอนุมัติ — ฟีเจอร์นี้ถูกปิดการใช้งาน
+                </div>
+              </Card>
+            )}
+
             <Card>
-              <form
-                onSubmit={submit}
-                className="grid grid-cols-1 md:grid-cols-2 gap-4"
-              >
-                {/* ซ้าย */}
-                <div>
-                  <label className="block text-sm text-slate-600 mb-1">
-                    ประเภทรายการ
-                  </label>
-                  <select
-                    value={form.kind}
-                    onChange={onChange("kind")}
-                    className="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
-                  >
-                    <option>รายรับ</option>
-                    <option>รายจ่าย</option>
-                  </select>
-                </div>
-
-                {/* ขวา */}
-                <div>
-                  <label className="block text-sm text-slate-600 mb-1">
-                    วิธีการจ่าย / รับเงิน
-                  </label>
-                  <select
-                    value={form.method}
-                    onChange={onChange("method")}
-                    className="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
-                  >
-                    <option>เงินสด</option>
-                    <option>โอนเงิน</option>
-                    <option>เช็ค</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm text-slate-600 mb-1">
-                    เลขอ้างอิงใบเสร็จ
-                  </label>
-                  <input
-                    value={form.ref}
-                    onChange={onChange("ref")}
-                    placeholder="เช่น INV-2025-001"
-                    className="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm text-slate-600 mb-1">
-                    จำนวนเงิน (บาท)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={form.amount}
-                    onChange={onChange("amount")}
-                    placeholder="เช่น 108.00"
-                    className="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
-                  />
-                </div>
-
-                <div className="md:col-span-2">
-                  <label className="block text-sm text-slate-600 mb-1">
-                    หมายเหตุ
-                  </label>
-                  <textarea
-                    rows={5}
-                    value={form.note}
-                    onChange={onChange("note")}
-                    placeholder="รายละเอียด เช่น ซื้อปุ๋ย ค่แรง ขายผลผลิต ฯลฯ"
-                    className="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
-                  />
-                </div>
-
-                <div className="md:col-span-2">
-                  <button
-                    type="submit"
-                    className="px-4 py-2 rounded-lg bg-emerald-700 text-white text-sm hover:bg-emerald-800"
-                  >
-                    ส่งรายงานให้เจ้าของสวน
-                  </button>
-                </div>
-              </form>
+              <h3 className="font-semibold mb-2">สัญญาที่ถูกยอมรับของฉัน</h3>
+              {accepted.length === 0 ? (
+                <div className="text-sm text-slate-600">ยังไม่มีสัญญาถูกยอมรับ</div>
+              ) : (
+                <ul className="text-sm list-disc pl-6">
+                  {accepted.map((c) => (
+                    <li key={c.contract_id}>
+                      #{c.contract_id} — {new Date(c.contract_date).toLocaleString("th-TH")} — {c.offerprice} บาท/กก.
+                    </li>
+                  ))}
+                </ul>
+              )}
             </Card>
 
-            {/* รายการล่าสุด (ตัวอย่าง) */}
             <Card>
-              <h3 className="font-semibold text-slate-800 mb-2">
-                รายการล่าสุด
-              </h3>
-              <div className="overflow-x-auto rounded-lg border bg-white shadow-sm">
-                <table className="min-w-full text-sm">
-                  <thead>
-                    <tr className="text-left bg-slate-50 text-slate-600">
-                      <th className="py-2 px-3">เวลาบันทึก</th>
-                      <th className="py-2 px-3">ประเภท</th>
-                      <th className="py-2 px-3">วิธีชำระ/รับเงิน</th>
-                      <th className="py-2 px-3">เลขอ้างอิง</th>
-                      <th className="py-2 px-3">จำนวนเงิน</th>
-                      <th className="py-2 px-3">หมายเหตุ</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {items.map((r, i) => (
-                      <tr
-                        key={r.id}
-                        className={i % 2 ? "bg-slate-50/60" : "bg-white"}
-                      >
-                        <td className="py-2 px-3">{fmtDT(r.at)}</td>
-                        <td className="py-2 px-3">{r.kind}</td>
-                        <td className="py-2 px-3">{r.method}</td>
-                        <td className="py-2 px-3">{r.ref}</td>
-                        <td className="py-2 px-3">{fmt(r.amount)}</td>
-                        <td className="py-2 px-3">{r.note}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <h3 className="font-semibold mb-2">เพิ่มรายการ</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <input
+                  placeholder="คำอธิบาย"
+                  value={form.desc}
+                  onChange={update("desc")}
+                  disabled={disabled}
+                  className="border rounded-lg px-3 py-2 disabled:bg-slate-100"
+                />
+                <select
+                  value={form.type}
+                  onChange={update("type")}
+                  disabled={disabled}
+                  className="border rounded-lg px-3 py-2 disabled:bg-slate-100"
+                >
+                  <option>รายรับ</option>
+                  <option>รายจ่าย</option>
+                </select>
+                <input
+                  type="number"
+                  placeholder="จำนวนเงิน"
+                  value={form.amount}
+                  onChange={update("amount")}
+                  disabled={disabled}
+                  className="border rounded-lg px-3 py-2 disabled:bg-slate-100"
+                />
               </div>
+              <button
+                onClick={add}
+                disabled={disabled}
+                className={`mt-3 px-4 py-2 rounded-lg text-white text-sm ${
+                  disabled ? "bg-slate-400 cursor-not-allowed" : "bg-emerald-700 hover:bg-emerald-800"
+                }`}
+              >
+                เพิ่มรายการ
+              </button>
+            </Card>
+
+            <Card>
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold">รายการทั้งหมด</h3>
+                <div className="text-sm">ยอดสุทธิ: <b>{total.toLocaleString("th-TH")}</b> บาท</div>
+              </div>
+              {rows.length === 0 ? (
+                <div className="text-sm text-slate-600 mt-2">ยังไม่มีรายการ</div>
+              ) : (
+                <div className="mt-2 space-y-2">
+                  {rows.map((r) => (
+                    <div key={r.id} className="border rounded-lg p-2 text-sm flex justify-between">
+                      <div>{r.desc} • {r.type}</div>
+                      <div>{r.amount.toLocaleString("th-TH")} บาท</div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </Card>
           </div>
         </main>

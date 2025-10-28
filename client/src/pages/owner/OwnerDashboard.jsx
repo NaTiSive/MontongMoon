@@ -1,223 +1,159 @@
 // src/pages/owner/OwnerDashboard.jsx
-import React, { useState, useEffect } from "react";
-import Card from "../../components/Card";
+import React, { useEffect, useMemo, useState } from "react";
 import Sidebar from "../../components/Sidebar";
-import { useAuth } from "../../contexts/AuthContext";
-import { useNavigate } from "react-router-dom";
 import HeaderWrapper from "../../components/HeaderWrapper";
+import Card from "../../components/Card";
+import { useAuth } from "../../contexts/AuthContext";
+import { useNavigate, Link } from "react-router-dom";
+import { listAllContracts, getOwnerDeadline } from "../../api/contracts";
 
 export default function OwnerDashboard() {
-  const { user, loading } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
-
-  // ✅ toggle sidebar (สำหรับมือถือ)
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
+  const [contracts, setContracts] = useState([]);
+  const [deadline, setDeadline] = useState(null);
+
   useEffect(() => {
-    if (loading) return;   
-    if (!user || user.role !== "owner") {
-      navigate("/login");
-    }
-  }, [user,loading, navigate]);
+    if (!user || user.role !== "owner") navigate("/login");
+  }, [user, navigate]);
 
-  if (loading) {
-  return <div className="h-screen flex items-center justify-center text-gray-600">กำลังโหลดข้อมูลผู้ใช้…</div>;
-}
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        setLoading(true);
+        const [all, dl] = await Promise.all([listAllContracts(), getOwnerDeadline()]);
+        if (!alive) return;
+        setContracts(all ?? []);
+        setDeadline(dl?.current_deadline_date ?? null);
+      } catch (e) {
+        if (!alive) return;
+        setErr(e?.message || "โหลดข้อมูลไม่สำเร็จ");
+      } finally {
+        if (!alive) return;
+        setLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
 
-  const [deadline, setDeadline] = useState("2025-10-04T07:00");
+  const count = useMemo(() => {
+    const p = contracts.filter(c => c.status === "รอการพิจารณา").length;
+    const a = contracts.filter(c => c.status === "ยอมรับ").length;
+    const r = contracts.filter(c => c.status === "ปฏิเสธ").length;
+    return { pending: p, accepted: a, rejected: r, total: contracts.length };
+  }, [contracts]);
 
-  const treeStatus = [
-    { key: "ปกติ", value: 2, bg: "bg-green-100", text: "text-green-700" },
-    { key: "มีปัญหา", value: 1, bg: "bg-rose-100", text: "text-rose-700" },
-    { key: "ออกดอก", value: 1, bg: "bg-sky-100", text: "text-sky-700" },
-    { key: "ออกผล", value: 1, bg: "bg-amber-100", text: "text-amber-700" },
-  ];
+  const latest = useMemo(
+    () => contracts.slice().sort((a, b) => new Date(b.contract_date) - new Date(a.contract_date)).slice(0, 5),
+    [contracts]
+  );
 
-  const offers = [
-    { broker: "ผู้รับเหมา A", price: "฿35.00 / kg", qty: 300, ok: true },
-    { broker: "ผู้รับเหมา B", price: "฿32.50 / kg", qty: 500, ok: false },
-    { broker: "ผู้รับเหมา C", price: "฿31.00 / kg", qty: 400, ok: true },
-    { broker: "ผู้รับเหมา D", price: "฿31.00 / kg", qty: 400, ok: true },
-  ];
-
-  const activities = [
-    { icon: "📝", text: "บันทึกรายการรายรับ", when: "ก่อนหน้า 3 ชม." },
-    { icon: "📨", text: "ได้รับการยื่นข้อเสนอแล้วจาก Broker B", when: "เมื่อวาน" },
-    { icon: "⚠️", text: "มีรายงานปัญหาใบไหม้ในโซน C", when: "2 วันก่อน" },
-  ];
-
-  const harvestSummary = [
-    { grade: "เกรด A", weight: 850 },
-    { grade: "เกรด B", weight: 850 },
-    { grade: "เกรด C", weight: 300 },
-    { grade: "ตกเกรด", weight: 350 },
-  ];
+  const fmtDT = (iso) =>
+    iso
+      ? new Date(iso).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" })
+      : "-";
 
   return (
-    // ✅ มือถือ: เรียงแนวตั้ง / เดสก์ท็อป: เรียงแนวนอน
-    <div
-      className={`min-h-screen w-full bg-slate-50 text-slate-900 flex flex-col md:flex-row ${
-        isSidebarOpen ? "overflow-hidden md:overflow-auto" : ""
-      }`}
-    >
-      {/* ✅ Sidebar แบบ Drawer (มือถือ) + Fixed (เดสก์ท็อป) */}
+    <div className={`min-h-screen w-full bg-slate-50 text-slate-900 flex flex-col md:flex-row ${
+      isSidebarOpen ? "overflow-hidden md:overflow-auto" : ""
+    }`}>
       <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
-
-      {/* ✅ Overlay มืดสำหรับมือถือ คลิกเพื่อปิด */}
       {isSidebarOpen && (
-        <div
-          onClick={() => setIsSidebarOpen(false)}
-          className="fixed inset-0 bg-black/40 z-40 md:hidden"
-        />
+        <div className="fixed inset-0 bg-black/40 z-40 md:hidden" onClick={() => setIsSidebarOpen(false)} />
       )}
 
-      {/* Main */}
       <div className="flex-1 min-w-0 flex flex-col">
-        {/* ✅ ส่ง onMenuClick ให้ Header ผ่าน HeaderWrapper เพื่อให้ปุ่ม ☰ เปิดเมนูได้ */}
         <HeaderWrapper
           onMenuClick={() => setIsSidebarOpen(true)}
           title="แดชบอร์ดเจ้าของสวน"
-          subtitle="ติดตามภาพรวมของสวนของคุณ"
+          subtitle="ภาพรวมข้อเสนอและกำหนดการ"
         />
-
         <main className="p-4 sm:p-6 pt-28">
-          {/* แถว: Deadline + สถานะต้นทุเรียน */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {/* ✅ แก้ปุ่มหลุดจาก Card: จัด layout ใหม่ให้ปลอดภัยทุกขนาดจอ */}
-            <Card>
-              <h3 className="font-semibold text-gray-800 mb-2">
-                กำหนดวันสิ้นสุดการรับข้อเสนอ
-              </h3>
-              <p className="text-xs text-gray-500 mb-3">
-                ใช้เพื่อควบคุมรอบการยื่นข้อเสนอของผู้รับเหมา หากหมดเขต
-                ระบบจะปิดการยื่นอัตโนมัติ
-              </p>
-
-              {/* มือถือวางเป็นคอลัมน์ / จอใหญ่ค่อยวางเป็นแถว */}
-              <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
-                <div className="flex-1">
-                  <input
-                    type="datetime-local"
-                    value={deadline}
-                    onChange={(e) => setDeadline(e.target.value)}
-                    className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500 outline-none"
-                  />
-                </div>
-                <button
-                  type="button"
-                  className="px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700"
-                  onClick={() => console.log("save deadline:", deadline)}
-                >
-                  บันทึกกำหนด
-                </button>
-              </div>
-
-              <p className="text-xs text-gray-400 mt-3">
-                อัปเดตครั้งล่าสุด: 3 ต.ค. 2568 02:13
-              </p>
-            </Card>
-
-            {/* สถานะต้นทุเรียนในสวน */}
-            <Card>
-              <h3 className="font-semibold text-gray-800 mb-3">
-                สถานะต้นทุเรียนในสวน
-              </h3>
-              <div className="space-y-2">
-                {treeStatus.map((s) => (
-                  <div
-                    key={s.key}
-                    className={`flex justify-between items-center ${s.bg} rounded-lg px-3 py-2`}
-                  >
-                    <span className={`${s.text} text-sm`}>{s.key}</span>
-                    <span className="font-semibold">{s.value}</span>
-                  </div>
-                ))}
-              </div>
-            </Card>
-          </div>
-
-          {/* กราฟ placeholder */}
-          <Card>
-            <div className="flex justify-between items-center mb-2">
-              <h3 className="font-semibold text-gray-800">รายรับ vs รายจ่าย</h3>
-              <span className="text-xs text-gray-500">ในรอบ 30 วันที่ผ่านมา</span>
-            </div>
-            <div className="h-56 bg-gray-100 rounded-lg flex items-center justify-center text-gray-500">
-              กราฟแสดงข้อมูล (placeholder)
-            </div>
-          </Card>
-
-          {/* แถว: กิจกรรมล่าสุด + ข้อเสนอ + สรุปเก็บเกี่ยว */}
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 mt-4">
-            <Card>
-              <h3 className="font-semibold text-gray-800 mb-3">
-                กิจกรรมล่าสุด
-              </h3>
-              <ul className="space-y-2 text-sm">
-                {activities.map((a, idx) => (
-                  <li key={idx} className="flex items-start gap-2">
-                    <span className="mt-0.5">{a.icon}</span>
-                    <div>
-                      <div className="text-gray-800">{a.text}</div>
-                      <div className="text-xs text-gray-500">{a.when}</div>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </Card>
-
-            <Card>
-              <h3 className="font-semibold text-gray-800 mb-3">
-                ข้อเสนอจากผู้รับเหมา
-              </h3>
-              <div className="space-y-2">
-                {offers.map((o, idx) => (
-                  <Card key={idx}>
-                    <div>
-                      <div className="font-medium text-gray-800">{o.broker}</div>
-                      <div className="text-xs text-gray-500">
-                        {o.price} • {o.qty} kg
-                      </div>
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        className="px-3 py-1 rounded-lg bg-green-600 text-white text-sm hover:bg-green-700"
-                        onClick={() => console.log("accept offer", idx)}
-                      >
-                        อนุมัติ
-                      </button>
-                      <button
-                        className="px-3 py-1 rounded-lg bg-rose-500 text-white text-sm hover:bg-rose-600"
-                        onClick={() => console.log("reject offer", idx)}
-                      >
-                        ปฏิเสธ
-                      </button>
-                    </div>
+          <div className="max-w-6xl mx-auto space-y-4">
+            {loading ? (
+              <Card>กำลังโหลดข้อมูล…</Card>
+            ) : err ? (
+              <Card className="text-rose-600">{err}</Card>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <Card>
+                    <div className="text-sm text-slate-500">ข้อเสนอทั้งหมด</div>
+                    <div className="mt-1 text-2xl font-semibold">{count.total}</div>
                   </Card>
-                ))}
-              </div>
-              <p className="text-xs text-gray-400 mt-2">* ปุ่มยังไม่เชื่อมระบบ</p>
-            </Card>
+                  <Card>
+                    <div className="text-sm text-slate-500">รอพิจารณา</div>
+                    <div className="mt-1 text-2xl font-semibold">{count.pending}</div>
+                  </Card>
+                  <Card>
+                    <div className="text-sm text-slate-500">ยอมรับแล้ว</div>
+                    <div className="mt-1 text-2xl font-semibold">{count.accepted}</div>
+                  </Card>
+                  <Card>
+                    <div className="text-sm text-slate-500">ถูกปฏิเสธ</div>
+                    <div className="mt-1 text-2xl font-semibold">{count.rejected}</div>
+                  </Card>
+                </div>
 
-            <Card>
-              <h3 className="font-semibold text-gray-800 mb-3">
-                สรุปการเก็บเกี่ยว
-              </h3>
-              <ul className="divide-y text-sm">
-                {harvestSummary.map((h) => (
-                  <li key={h.grade} className="py-2 flex justify-between">
-                    <span className="text-gray-700">{h.grade}</span>
-                    <span className="font-semibold">{h.weight} kg</span>
-                  </li>
-                ))}
-              </ul>
-              <div className="mt-2 text-right text-sm text-gray-600">
-                รวมทั้งหมด:{" "}
-                <span className="font-semibold">
-                  {harvestSummary.reduce((a, b) => a + b.weight, 0)} kg
-                </span>
-              </div>
-            </Card>
+                <Card>
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <div>
+                      <div className="text-sm text-slate-500">กำหนดปิดรับข้อเสนอ (รอบปัจจุบัน)</div>
+                      <div className="text-lg font-semibold">{fmtDT(deadline)}</div>
+                    </div>
+                    <Link
+                      to="/owner/offers"
+                      className="inline-flex items-center justify-center px-3 py-2 rounded-lg text-white bg-emerald-700 hover:bg-emerald-800 text-sm"
+                    >
+                      ไปยังหน้าพิจารณาข้อเสนอ
+                    </Link>
+                  </div>
+                </Card>
+
+                <Card>
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="font-semibold">ข้อเสนอล่าสุด</h3>
+                    <Link to="/owner/offers" className="text-sm underline text-slate-700">
+                      ดูทั้งหมด
+                    </Link>
+                  </div>
+                  {latest.length === 0 ? (
+                    <div className="text-sm text-slate-600">ยังไม่มีข้อเสนอ</div>
+                  ) : (
+                    <div className="space-y-2">
+                      {latest.map((o) => (
+                        <div key={o.contract_id} className="border rounded-lg p-3 bg-white flex items-center justify-between">
+                          <div className="text-sm">
+                            <div className="font-medium">
+                              #{o.contract_id.slice(0, 8)} • {o.broker_id ?? "-"}
+                            </div>
+                            <div className="text-slate-600">
+                              ส่งเมื่อ {fmtDT(o.contract_date)}
+                            </div>
+                          </div>
+                          <span
+                            className={`px-3 py-1 rounded-lg text-xs font-medium ${
+                              o.status === "รอการพิจารณา"
+                                ? "bg-amber-100 text-amber-700"
+                                : o.status === "ยอมรับ"
+                                ? "bg-emerald-100 text-emerald-700"
+                                : "bg-rose-100 text-rose-700"
+                            }`}
+                          >
+                            {o.status}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </Card>
+              </>
+            )}
           </div>
         </main>
       </div>

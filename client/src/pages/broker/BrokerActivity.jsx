@@ -1,12 +1,9 @@
-// src/pages/broker/BrokerActivity.jsx
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import Sidebar from "../../components/Sidebar";
-import Header from "../../components/Header";
+import HeaderWrapper from "../../components/HeaderWrapper";
 import Card from "../../components/Card";
 import { useAuth } from "../../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
-import { useEffect } from "react";
-import HeaderWrapper from "../../components/HeaderWrapper";
 
 export default function BrokerActivity() {
   const { user } = useAuth();
@@ -14,122 +11,97 @@ export default function BrokerActivity() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   useEffect(() => {
-    if (!user || user.role !== "broker") {
-      navigate("/login");
-    }
+    if (!user || user.role !== "broker") navigate("/login");
   }, [user, navigate]);
 
-  // ตัวอย่าง Tree ที่ค้นหาได้ (จริงให้ดึงจาก API)
-  const trees = useMemo(
-    () => ["T-001", "T-012", "T-032", "T-045", "T-101", "T-115", "T-203"],
-    []
-  );
+  const disabled = user?.approvalStatus !== "approved";
 
-  // รายการประเภจกิจกรรม (ปรับเพิ่มได้)
-  const categories = ["รายต้น", "ภาพรวม", "อื่น ๆ"];
+  // mock form
+  const [form, setForm] = useState({ treeId: "", category: "ตัดแต่งกิ่ง", detail: "" });
+  const update = (k) => (e) => setForm((p) => ({ ...p, [k]: e.target.value }));
 
-  const [form, setForm] = useState({
-    treeId: "",
-    category: categories[0],
-    detail: "",
-  });
-
-  const onChange = (k) => (e) =>
-    setForm((p) => ({ ...p, [k]: e.target.value }));
-
-  const submit = (e) => {
-    e.preventDefault();
-    if (!form.treeId.trim()) return alert("กรุณากรอกหมายเลขต้นทุเรียน");
-    if (!form.detail.trim()) return alert("กรุณากรอกรายละเอียดกิจกรรม");
-
-    // call API จริงตรงนี้
-    console.log("save activity:", form);
-
-    alert("บันทึกกิจกรรมเรียบร้อย");
-    setForm({ treeId: "", category: categories[0], detail: "" });
+  const submit = () => {
+    if (disabled) return;
+    if (!form.treeId || !form.detail) return alert("กรุณากรอกข้อมูลให้ครบ");
+    alert("บันทึกกิจกรรมสำเร็จ (mock)");
+    setForm({ treeId: "", category: "ตัดแต่งกิ่ง", detail: "" });
   };
 
   return (
-    <div
-      className={`min-h-screen w-full bg-slate-50 text-slate-900 flex flex-col md:flex-row ${
-        isSidebarOpen ? "overflow-hidden md:overflow-auto" : ""
-      }`}
-    >
+    <div className={`min-h-screen w-full bg-slate-50 text-slate-900 flex flex-col md:flex-row ${
+      isSidebarOpen ? "overflow-hidden md:overflow-auto" : ""
+    }`}>
       <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
       {isSidebarOpen && (
-        <div
-          className="fixed inset-0 bg-black/40 z-40 md:hidden"
-          onClick={() => setIsSidebarOpen(false)}
-        />
+        <div className="fixed inset-0 bg-black/40 z-40 md:hidden" onClick={() => setIsSidebarOpen(false)} />
       )}
+
       <div className="flex-1 min-w-0 flex flex-col">
         <HeaderWrapper
           onMenuClick={() => setIsSidebarOpen(true)}
           title="บันทึกกิจกรรม"
-          subtitle="กรอกกิจกรรมระหว่างวันในสวน"
+          subtitle="บันทึกงานภาคสนาม (สำหรับบัญชีที่ได้รับอนุมัติ)"
         />
+
         <main className="p-4 sm:p-6 pt-28">
-          <div className="max-w-3xl mx-auto">
-            <Card>
-              <form onSubmit={submit} className="space-y-4">
-                {/* Row: Tree ID + Category */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm text-slate-600 mb-1">
-                      หมายเลขต้นทุเรียน (Tree ID)
-                    </label>
-                    {/* ใช้ datalist ช่วยค้นหา/เติมอัตโนมัติ */}
-                    <input
-                      list="tree-list"
-                      value={form.treeId}
-                      onChange={onChange("treeId")}
-                      placeholder="ค้นหาและเลือกหมายเลขต้น"
-                      className="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
-                    />
-                    <datalist id="tree-list">
-                      {trees.map((t) => (
-                        <option key={t} value={t} />
-                      ))}
-                    </datalist>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm text-slate-600 mb-1">
-                      ประเภจกิจกรรม
-                    </label>
-                    <select
-                      value={form.category}
-                      onChange={onChange("category")}
-                      className="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
-                    >
-                      {categories.map((c) => (
-                        <option key={c}>{c}</option>
-                      ))}
-                    </select>
-                  </div>
+          <div className="max-w-3xl mx-auto space-y-4">
+            {disabled && (
+              <Card>
+                <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                  บัญชีของคุณยังไม่ได้รับการอนุมัติ — ฟอร์มนี้ถูกปิดการใช้งานชั่วคราว
                 </div>
+              </Card>
+            )}
 
-                {/* Detail */}
+            <Card>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm text-slate-600 mb-1">
-                    รายละเอียดกิจกรรม
-                  </label>
-                  <textarea
-                    rows={6}
-                    value={form.detail}
-                    onChange={onChange("detail")}
-                    placeholder="ระบุสิ่งที่ทำ ปริมาณวัสดุ เวลา หรือข้อสังเกต"
-                    className="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                  <label className="block text-sm text-slate-600 mb-1">รหัสต้น</label>
+                  <input
+                    value={form.treeId}
+                    onChange={update("treeId")}
+                    disabled={disabled}
+                    className="w-full border rounded-lg px-3 py-2 bg-white disabled:bg-slate-100"
+                    placeholder="เช่น T-102"
                   />
                 </div>
+                <div>
+                  <label className="block text-sm text-slate-600 mb-1">ประเภทกิจกรรม</label>
+                  <select
+                    value={form.category}
+                    onChange={update("category")}
+                    disabled={disabled}
+                    className="w-full border rounded-lg px-3 py-2 bg-white disabled:bg-slate-100"
+                  >
+                    <option>ตัดแต่งกิ่ง</option>
+                    <option>พ่นยา</option>
+                    <option>ให้น้ำ</option>
+                    <option>ใส่ปุ๋ย</option>
+                  </select>
+                </div>
+              </div>
 
-                <button
-                  type="submit"
-                  className="px-4 py-2 rounded-lg bg-emerald-700 text-white text-sm hover:bg-emerald-800"
-                >
-                  บันทึกกิจกรรม
-                </button>
-              </form>
+              <div className="mt-3">
+                <label className="block text-sm text-slate-600 mb-1">รายละเอียด</label>
+                <textarea
+                  value={form.detail}
+                  onChange={update("detail")}
+                  disabled={disabled}
+                  className="w-full border rounded-lg px-3 py-2 bg-white disabled:bg-slate-100"
+                  rows={3}
+                  placeholder="อธิบายงานที่ทำ / สภาพแวดล้อม"
+                />
+              </div>
+
+              <button
+                onClick={submit}
+                disabled={disabled}
+                className={`mt-4 px-4 py-2 rounded-lg text-white text-sm ${
+                  disabled ? "bg-slate-400 cursor-not-allowed" : "bg-emerald-700 hover:bg-emerald-800"
+                }`}
+              >
+                บันทึกกิจกรรม
+              </button>
             </Card>
           </div>
         </main>

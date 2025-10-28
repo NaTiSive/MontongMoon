@@ -1,184 +1,113 @@
-import React, { useState } from "react";
+// src/pages/owner/OwnerTransactions.jsx
+import React, { useEffect, useMemo, useState } from "react";
 import Sidebar from "../../components/Sidebar";
-import Header from "../../components/Header";
+import HeaderWrapper from "../../components/HeaderWrapper";
 import Card from "../../components/Card";
 import { useAuth } from "../../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
-import { useEffect } from "react";
-import HeaderWrapper from "../../components/HeaderWrapper";
+import { listAllContracts } from "../../api/contracts";
 
 export default function OwnerTransactions() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+
   useEffect(() => {
-    if (!user || user.role !== "owner") {
-      navigate("/login");
-    }
+    if (!user || user.role !== "owner") navigate("/login");
   }, [user, navigate]);
-  const [transactions] = useState([
-    {
-      id: 1,
-      datetime: "2025-09-20T11:46:09",
-      user: "jame",
-      type: "รายจ่าย",
-      method: "โอนเงิน",
-      amount: 50,
-      status: "อนุมัติแล้ว",
-    },
-    {
-      id: 1,
-      datetime: "2025-09-20T11:46:09",
-      user: "jame",
-      type: "รายจ่าย",
-      method: "โอนเงิน",
-      amount: 50,
-      status: "อนุมัติ",
-    },
-    {
-      id: 1,
-      datetime: "2025-09-20T11:46:09",
-      user: "jame",
-      type: "รายจ่าย",
-      method: "โอนเงิน",
-      amount: 50,
-      status: "ปฏิเสธ",
-    },
-  ]);
 
-  const sumApprovedIn = 0.0;
-  const sumApprovedOut = 50.0;
-  const balance = sumApprovedIn - sumApprovedOut;
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      setLoading(true);
+      const all = await listAllContracts();
+      const accepted = all.filter(c => c.status === "ยอมรับ");
+      if (alive) setRows(accepted);
+      setLoading(false);
+    })();
+    return () => { alive = false; };
+  }, []);
 
-  const thb = (n) =>
-    n.toLocaleString("th-TH", {
-      style: "currency",
-      currency: "THB",
-      minimumFractionDigits: 2,
-    });
+  const totalQty = useMemo(() => rows.reduce((s, r) => s + Number(r.qtt_estimate || 0), 0), [rows]);
+  const avgPrice = useMemo(() => {
+    if (rows.length === 0) return 0;
+    return rows.reduce((s, r) => s + Number(r.offerprice || 0), 0) / rows.length;
+  }, [rows]);
 
-  const fmt = (iso) =>
-    new Date(iso).toLocaleString("th-TH", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    });
-
-  const StatusBadge = ({ text }) => {
-    const map = {
-      อนุมัติแล้ว: "bg-green-800 text-white",
-      อนุมัติ: "bg-green-100 text-green-700 border border-green-400",
-      ปฏิเสธ: "bg-amber-100 text-amber-700 border border-amber-400",
-    };
-    return (
-      <span
-        className={`px-3 py-1 rounded-lg text-xs font-medium ${
-          map[text] || ""
-        }`}
-      >
-        {text}
-      </span>
-    );
-  };
-
-  const SummaryCard = ({ label, value, color }) => (
-    <div className={`rounded-2xl shadow-sm px-6 py-5 ${color.bg}`}>
-      <div className={`text-sm font-medium ${color.text}`}>{label}</div>
-      <div className={`mt-1 text-2xl font-semibold ${color.text}`}>
-        {thb(value)}
-      </div>
-    </div>
-  );
+  const fmtDT = (iso) =>
+    new Date(iso).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" });
 
   return (
-    <div
-      className={`min-h-screen w-full bg-slate-50 text-slate-900 flex flex-col md:flex-row ${
-        isSidebarOpen ? "overflow-hidden md:overflow-auto" : ""
-      }`}
-    >
+    <div className={`min-h-screen w-full bg-slate-50 text-slate-900 flex flex-col md:flex-row ${isSidebarOpen ? "overflow-hidden md:overflow-auto" : ""}`}>
       <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
-      {isSidebarOpen && (
-        <div
-          className="fixed inset-0 bg-black/40 z-40 md:hidden"
-          onClick={() => setIsSidebarOpen(false)}
-        />
-      )}
+      {isSidebarOpen && <div className="fixed inset-0 bg-black/40 z-40 md:hidden" onClick={() => setIsSidebarOpen(false)} />}
 
       <div className="flex-1 min-w-0 flex flex-col">
         <HeaderWrapper
           onMenuClick={() => setIsSidebarOpen(true)}
-          title="รายรับ / รายจ่ายของสวน"
-          subtitle="ตรวจสอบและยืนยันรายการจากผู้รับเหมา พร้อมดูสรุปภาพรวม"
+          title="ธุรกรรม/สัญญา"
+          subtitle="ข้อเสนอที่ได้รับการยอมรับแล้ว"
         />
-        <main className="p-4 sm:p-6 pt-28 space-y-6">
-          {/* การ์ดสรุปยอดรวม */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <SummaryCard
-              label="รายรับที่อนุมัติแล้ว"
-              value={sumApprovedIn}
-              color={{ bg: "bg-emerald-50", text: "text-emerald-700" }}
-            />
-            <SummaryCard
-              label="รายจ่ายที่อนุมัติแล้ว"
-              value={sumApprovedOut}
-              color={{ bg: "bg-rose-50", text: "text-rose-700" }}
-            />
-            <SummaryCard
-              label="คงเหลือสุทธิ"
-              value={balance}
-              color={{ bg: "bg-lime-50", text: "text-lime-700" }}
-            />
-          </div>
+        <main className="p-4 sm:p-6 pt-28">
+          <div className="max-w-6xl mx-auto space-y-4">
+            <Card>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                <div>
+                  <div className="text-slate-500">จำนวนสัญญาที่อนุมัติ</div>
+                  <div className="text-xl font-semibold">{rows.length}</div>
+                </div>
+                <div>
+                  <div className="text-slate-500">ปริมาณรวม (กก.)</div>
+                  <div className="text-xl font-semibold">{totalQty.toLocaleString("th-TH")}</div>
+                </div>
+                <div>
+                  <div className="text-slate-500">ราคาเฉลี่ย (บาท/กก.)</div>
+                  <div className="text-xl font-semibold">{avgPrice.toFixed(2)}</div>
+                </div>
+              </div>
+            </Card>
 
-          {/* ตารางรายการ */}
-          <Card>
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead>
-                  <tr className="bg-emerald-50 text-slate-700 text-left">
-                    <th className="py-2 px-3 rounded-l-lg">วันที่</th>
-                    <th className="py-2 px-3">ผู้บันทึก</th>
-                    <th className="py-2 px-3">ประเภท</th>
-                    <th className="py-2 px-3">จำนวนเงิน</th>
-                    <th className="py-2 px-3">วิธีชำระ</th>
-                    <th className="py-2 px-3">สถานะ</th>
-                    <th className="py-2 px-3 rounded-r-lg text-center">
-                      การยืนยัน
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {transactions.map((t) => (
-                    <tr
-                      key={t.id}
-                      className="border-t bg-white hover:bg-slate-50"
-                    >
-                      <td className="py-2 px-3">{fmt(t.datetime)}</td>
-                      <td className="py-2 px-3">{t.user}</td>
-                      <td className="py-2 px-3">{t.type}</td>
-                      <td className="py-2 px-3">{thb(t.amount)}</td>
-                      <td className="py-2 px-3">{t.method}</td>
-                      <td className="py-2 px-3">
-                        <StatusBadge text={t.status} />
-                      </td>
-                      <td className="py-2 px-3 flex gap-2 justify-center">
-                        <button className="px-3 py-1 rounded-lg bg-green-700 text-white text-xs hover:bg-green-800">
-                          อนุมัติ
-                        </button>
-                        <button className="px-3 py-1 rounded-lg bg-amber-400 text-white text-xs hover:bg-amber-500">
-                          ปฏิเสธ
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Card>
+            <Card>
+              <h3 className="font-semibold mb-2">รายละเอียดสัญญา</h3>
+              {loading ? (
+                <div>กำลังโหลด…</div>
+              ) : rows.length === 0 ? (
+                <div className="text-slate-600 text-sm">ยังไม่มีสัญญาที่ถูกยอมรับ</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className="text-left border-b">
+                        <th className="py-2 pr-4">สัญญา #</th>
+                        <th className="py-2 pr-4">วันที่</th>
+                        <th className="py-2 pr-4">Broker</th>
+                        <th className="py-2 pr-4">ปริมาณ (กก.)</th>
+                        <th className="py-2 pr-4">ราคา (บาท/กก.)</th>
+                        <th className="py-2 pr-4">ชำระเงิน</th>
+                        <th className="py-2 pr-4">หมายเหตุ</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map(r => (
+                        <tr key={r.contract_id} className="border-b">
+                          <td className="py-2 pr-4 font-medium">#{r.contract_id.slice(0, 8)}</td>
+                          <td className="py-2 pr-4">{fmtDT(r.contract_date)}</td>
+                          <td className="py-2 pr-4">{r.broker_id ?? "-"}</td>
+                          <td className="py-2 pr-4">{Number(r.qtt_estimate).toLocaleString("th-TH")}</td>
+                          <td className="py-2 pr-4">{Number(r.offerprice).toLocaleString("th-TH")}</td>
+                          <td className="py-2 pr-4">{r.payment_term}</td>
+                          <td className="py-2 pr-4">{r.note || "-"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Card>
+          </div>
         </main>
       </div>
     </div>
