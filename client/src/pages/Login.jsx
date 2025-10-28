@@ -5,6 +5,7 @@ import PageHeader from "../components/PageHeader";
 import { useNavigate } from "react-router-dom";
 import PrimaryButton from "../components/PrimaryButton";
 import { useAuth } from "../contexts/AuthContext";
+import { getBrokerApproval } from "../api/contracts";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -37,6 +38,7 @@ export default function Login() {
       phone: "088-111-2222",
       address: "45/6 ต.ทุเรียนทอง อ.บ้านสวน จ.ระยอง",
       approvalStatus: "approved",
+      broker_id: 2,
     },
     {
       email: "pending@durianlink.com",
@@ -46,6 +48,7 @@ export default function Login() {
       phone: "099-555-5555",
       address: "44 หมู่ 3 อ.ทุ่งผลไม้ จ.จันทบุรี",
       approvalStatus: "pending",
+      broker_id: 3,
     },
   ];
 
@@ -59,6 +62,15 @@ export default function Login() {
     if (!foundUser) {
       alert("อีเมลหรือรหัสผ่านไม่ถูกต้อง");
       return;
+    }
+
+    // ถ้าเป็น broker → ดึงสถานะอนุมัติล่าสุดที่ owner เซ็ตไว้ (ผ่าน OwnerOffers)
+    if (foundUser.role === "broker" && foundUser.broker_id != null) {
+      try {
+        const latest = getBrokerApproval(foundUser.broker_id);
+        // override approvalStatus ตามจริง
+        foundUser.approvalStatus = latest;
+      } catch {}
     }
 
     login(foundUser);
