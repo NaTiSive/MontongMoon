@@ -29,13 +29,33 @@ export function AuthProvider({ children }) {
   };
 
   // ✅ update user profile
-  const updateUser = (patch) => {
-    setUser((prev) => {
-      const next = { ...(prev || {}), ...patch };
-      localStorage.setItem("user", JSON.stringify(next));
-      return next;
-    });
-  };
+// src/contexts/AuthContext.jsx (เฉพาะส่วนฟังก์ชัน updateUser)
+const updateUser = (newData) => {
+  setUser((prev) => {
+    if (!prev) return prev;
+    const updated = { ...prev, ...newData };
+
+    // ✅ เขียนกลับ localStorage user ปัจจุบัน
+    localStorage.setItem("mm:user@v1", JSON.stringify(updated));
+
+    // ✅ ถ้าเป็น broker → อัปเดตใน mm:brokers@v1 ด้วย
+    if (updated.role === "broker" && updated.broker_id != null) {
+      try {
+        const arr = JSON.parse(localStorage.getItem("mm:brokers@v1") || "[]");
+        const i = arr.findIndex((b) => b.broker_id === updated.broker_id);
+        if (i !== -1) {
+          arr[i] = { ...arr[i], ...newData };
+          localStorage.setItem("mm:brokers@v1", JSON.stringify(arr));
+        }
+      } catch (e) {
+        console.warn("updateUser broker save failed:", e);
+      }
+    }
+
+    return updated;
+  });
+};
+
 
   // ✅ auto-sync broker approvalStatus (เมื่อโฟกัสหน้าต่าง หรือเป็นระยะ)
   useEffect(() => {

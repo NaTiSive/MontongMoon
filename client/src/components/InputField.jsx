@@ -1,11 +1,10 @@
-// src/components/InputField.jsx
 export default function InputField({
   label,
   type = "text",
   placeholder = "",
   value,
   onChange,
-  disabled = false,
+  ...rest // 👈 รับพร็อพอื่น ๆ เช่น name, disabled, autoComplete ฯลฯ
 }) {
   return (
     <div className="mb-4">
@@ -20,11 +19,10 @@ export default function InputField({
         value={value}
         onChange={onChange}
         placeholder={placeholder}
-        disabled={disabled}
         className="w-full border border-gray-300 rounded-lg px-3 py-2 
                    focus:outline-none focus:ring-2 focus:ring-green-500
-                   text-gray-800 placeholder-gray-400
-                   disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed"
+                   text-gray-800 placeholder-gray-400"
+        {...rest} // 👈 กระจายลง input
       />
     </div>
   );
