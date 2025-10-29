@@ -1,253 +1,272 @@
-// src/pages/broker/BrokerProblems.jsx
-import React, { useMemo, useState } from "react";
+// src/pages/broker/BrokerReportProblem.jsx
+import React, { useEffect, useMemo, useState } from "react";
 import Sidebar from "../../components/Sidebar";
-import Header from "../../components/Header";
+import HeaderWrapper from "../../components/HeaderWrapper";
 import Card from "../../components/Card";
+import InputField from "../../components/InputField";
+import TextArea from "../../components/TextArea";
+import SelectField from "../../components/SelectField";
+import PrimaryButton from "../../components/PrimaryButton";
+import { useAuth } from "../../contexts/AuthContext";
+import { useNavigate } from "react-router-dom";
 
-export default function BrokerProblems() {
-  // ตัวอย่างรายการต้น (ของจริงเปลี่ยนเป็นดึงจาก API)
-  const treeOptions = useMemo(
-    () => ["T-001", "T-012", "T-108", "T-205", "T-242", "T-315"],
-    []
-  );
+import { seedTreesIfEmpty, listTrees } from "../../api/trees";               // ต้นทุเรียน (โหมดรายต้น)
+import { createProblem, listProblems, brokerConfirmFixed } from "../../api/problems"; // API ปัญหา (UC3+UC5)
 
-  // ประเภทปัญหา
-  const problemTypes = [
-    "ราขาว",
-    "ใบไหม้",
-    "โรคเน่าคอดิน",
-    "แมลงศัตรูพืช",
-    "ขาดน้ำ/ระบบน้ำมีปัญหา",
-    "ลมแรง/กิ่งหัก",
-    "ดิน/ปุ๋ยไม่เหมาะสม",
-    "อื่น ๆ",
-  ];
+// อ้างถึงโครง API ที่มีอยู่: createProblem, listProblems, brokerConfirmFixed
+// - createProblem({ broker_id, tree_id, description }) สร้างปัญหาใหม่ (status เริ่ม "เปิดปัญหา")
+// - listProblems() คืนรายการทั้งหมด (เราจะกรองด้วย broker_id ฝั่งหน้า)
+// - brokerConfirmFixed(id) อัปเดตสถานะเป็น "แก้ไขแล้ว"
+// ดูฟังก์ชันได้ใน src/api/problems.js
+// (สอดคล้องกับที่คุณอัปโหลด) :contentReference[oaicite:3]{index=3}
 
-  // ฟอร์ม
-  const [form, setForm] = useState({
-    treeId: "",
-    type: problemTypes[0],
-    detail: "",
-  });
-  const onChange = (k) => (e) => setForm((p) => ({ ...p, [k]: e.target.value }));
+export default function BrokerReportProblem() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-  // รายการปัญหาที่ส่ง (mock เริ่มต้น 3 รายการ)
-  const [items, setItems] = useState([
-    {
-      id: "PB-003",
-      treeId: "T-108",
-      type: "ราขาว",
-      detail: "พบคราบเชื้อราใบด้านล่างกระจายเป็นจุด",
-      createdAt: "2025-10-03T09:30:00",
-      status: "ส่งแล้ว",
-    },
-    {
-      id: "PB-002",
-      treeId: "T-205",
-      type: "แมลงศัตรูพืช",
-      detail: "เจอตัวหนอนชอนใบหลายจุด",
-      createdAt: "2025-10-02T16:20:00",
-      status: "ส่งแล้ว",
-    },
-    {
-      id: "PB-001",
-      treeId: "T-012",
-      type: "ใบไหม้",
-      detail: "ใบไหม้กระจายบริเวณปลายยอด",
-      createdAt: "2025-10-01T11:05:00",
-      status: "ส่งแล้ว",
-    },
-  ]);
+  useEffect(() => {
+    if (!user || user.role !== "broker") navigate("/login");
+  }, [user, navigate]);
 
-  // ฟิลเตอร์/ค้นหา
-  const [q, setQ] = useState(""); // ค้นหา
-  const [ftype, setFtype] = useState("ทั้งหมด"); // กรองประเภท
+  // ----- ฟอร์มรายงานใหม่ -----
+  const [mode, setMode] = useState("รายต้น"); // "รายต้น" | "ทั้งสวน"
+  const [treeId, setTreeId] = useState("");
+  const [note, setNote] = useState("");
+  const [trees, setTrees] = useState([]);
 
-  const filtered = items.filter((it) => {
-    const hitText =
-      `${it.id} ${it.treeId} ${it.type} ${it.detail}`
-        .toLowerCase()
-        .includes(q.trim().toLowerCase());
-    const hitType = ftype === "ทั้งหมด" ? true : it.type === ftype;
-    return hitText && hitType;
-  });
+  // ----- รายการปัญหาของฉัน -----
+  const [rows, setRows] = useState([]);
+  const [q, setQ] = useState("");       // ค้นหา
+  const [typeFilter, setTypeFilter] = useState(""); // ฟิลเตอร์ประเภท
 
-  // Helpers
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      // เตรียมลิสต์ต้น (กรณีรายต้น)
+      seedTreesIfEmpty();                                      // seed ถ้ายังไม่มีข้อมูล :contentReference[oaicite:4]{index=4}
+      const t = listTrees();                                   // [{ id, name, status }, ...]
+      if (!alive) return;
+      setTrees(t || []);
+
+      // โหลดรายการปัญหาทั้งหมด แล้วกรองเฉพาะของ broker คนนี้
+      const all = listProblems();                              // เรียงล่าสุดก่อน :contentReference[oaicite:5]{index=5}
+      const mine = (all || []).filter((p) => p.broker_id === user?.broker_id);
+      setRows(mine);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [user?.broker_id]);
+
+  // แสดงชื่อชนิด (รายต้น/ทั้งสวน) จาก description ที่ prefix ไว้
+  const parseType = (desc = "") => {
+    if (desc.startsWith("[รายต้น]")) return "รายต้น";
+    if (desc.startsWith("[ทั้งสวน]")) return "ทั้งสวน";
+    return "-";
+  };
+
+  const filtered = useMemo(() => {
+    const k = q.trim().toLowerCase();
+    return rows.filter((r) => {
+      const text = `${r.description || ""} ${r.owner_note || ""} ${r.status || ""}`.toLowerCase();
+      const hitQ = k ? text.includes(k) : true;
+      const hitType = typeFilter ? parseType(r.description) === typeFilter : true;
+      return hitQ && hitType;
+    });
+  }, [rows, q, typeFilter]);
+
   const fmtDT = (iso) =>
-    new Date(iso).toLocaleString("th-TH", {
-      year: "numeric",
-      month: "short",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
+    iso ? new Date(iso).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" }) : "-";
+
+  // ----- ส่งรายงานใหม่ (UC3) -----
+  const submit = async () => {
+    if (!note.trim()) return alert("กรุณากรอกรายละเอียดปัญหา");
+    if (mode === "รายต้น" && !treeId) return alert("กรุณาเลือกต้นทุเรียน");
+
+    // เก็บประเภทเข้าไปใน description ตาม API เดิม
+    const description = `[${mode}] ${note.trim()}`;
+
+    await createProblem({
+      broker_id: user?.broker_id,
+      tree_id: mode === "รายต้น" ? (treeId || null) : null,
+      description,                                                // API เดิมรับ description :contentReference[oaicite:6]{index=6}
     });
 
-  const StatusBadge = ({ s }) => (
-    <span className="px-2 py-0.5 rounded-full text-xs border bg-emerald-50 text-emerald-700 border-emerald-300">
-      {s}
-    </span>
-  );
+    // reload my list
+    const all = listProblems();
+    const mine = (all || []).filter((p) => p.broker_id === user?.broker_id);
+    setRows(mine);
 
-  // Submit
-  const submit = (e) => {
-    e.preventDefault();
-    if (!form.treeId.trim()) return alert("กรุณาระบุหมายเลขต้นทุเรียน (Tree ID)");
-    if (!form.detail.trim()) return alert("กรุณากรอกรายละเอียดปัญหา");
+    // reset form
+    setNote("");
+    if (mode === "รายต้น") setTreeId("");
+  };
 
-    const rec = {
-      id: `PB-${String(items.length + 1).padStart(3, "0")}`,
-      treeId: form.treeId.trim(),
-      type: form.type,
-      detail: form.detail.trim(),
-      createdAt: new Date().toISOString(),
-      status: "ส่งแล้ว",
-    };
-    setItems((prev) => [rec, ...prev]);       // เพิ่มไปที่ตารางด้านล่างทันที
-    setForm({ treeId: "", type: problemTypes[0], detail: "" });
-    alert("ส่งรายงานปัญหาเรียบร้อย");
+  // ----- ยืนยันแก้ไขแล้ว (UC5) -----
+  const confirmFixed = async (id) => {
+    await brokerConfirmFixed(id);                                // เปลี่ยนเป็น "แก้ไขแล้ว" :contentReference[oaicite:7]{index=7}
+    const all = listProblems();
+    const mine = (all || []).filter((p) => p.broker_id === user?.broker_id);
+    setRows(mine);
+  };
+
+  // ตัวช่วยเรนเดอร์ badge สถานะ
+  const badge = (status) => {
+    const cls =
+      status === "เปิดปัญหา"
+        ? "bg-rose-100 text-rose-700"
+        : status === "ระหว่างแก้ไข"
+        ? "bg-amber-100 text-amber-700"
+        : "bg-emerald-100 text-emerald-700";
+    return <span className={`px-3 py-1 rounded-lg text-xs font-medium ${cls}`}>{status}</span>;
   };
 
   return (
-    <div className="min-h-screen w-full bg-slate-50 text-slate-900 flex">
-      {/* Sidebar */}
-      <div className="hidden md:block w-56 lg:w-64 shrink-0 sticky top-0 h-screen bg-white shadow-md">
-        <Sidebar />
-      </div>
+    <div className={`min-h-screen w-full bg-slate-50 text-slate-900 flex flex-col md:flex-row ${
+      isSidebarOpen ? "overflow-hidden md:overflow-auto" : ""
+    }`}>
+      <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
+      {isSidebarOpen && <div className="fixed inset-0 bg-black/40 z-40 md:hidden" onClick={() => setIsSidebarOpen(false)} />}
 
-      {/* Main */}
       <div className="flex-1 min-w-0 flex flex-col">
-        <Header
-          title="รายงานปัญหาที่เกิดขึ้นในสวน"
-          subtitle="แจ้งรายละเอียดปัญหาเพื่อให้เจ้าของสวนให้คำแนะนำและแก้ไขได้อย่างรวดเร็ว"
-          name="สมชาย เข้มแข็ง"
-          role="เจ้าของสวน"
+        <HeaderWrapper
+          onMenuClick={() => setIsSidebarOpen(true)}
+          title="รายงานปัญหา"
+          subtitle="สร้างปัญหาใหม่และติดตามสถานะ (ยืนยันแก้ไขได้ที่นี่)"
         />
 
-        <main className="p-4 sm:p-6 pt-28 space-y-6">
-          {/* ฟอร์มส่งปัญหา */}
-          <div className="max-w-3xl mx-auto">
+        <main className="p-4 sm:p-6 pt-28">
+          <div className="max-w-5xl mx-auto space-y-4">
+
+            {/* ฟอร์มรายงานใหม่ (UC3) */}
             <Card>
-              <form onSubmit={submit} className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm text-slate-600 mb-1">
-                      หมายเลขต้นทุเรียน (Tree ID)
-                    </label>
-                    <input
-                      list="tree-list"
-                      value={form.treeId}
-                      onChange={onChange("treeId")}
-                      placeholder="เช่น T-108"
-                      className="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
-                    />
-                    <datalist id="tree-list">
-                      {treeOptions.map((t) => (
-                        <option key={t} value={t} />
-                      ))}
-                    </datalist>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm text-slate-600 mb-1">
-                      ประเภทปัญหา
-                    </label>
-                    <select
-                      value={form.type}
-                      onChange={onChange("type")}
-                      className="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
-                    >
-                      {problemTypes.map((p) => (
-                        <option key={p}>{p}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm text-slate-600 mb-1">
-                    รายละเอียดปัญหาอาการ
-                  </label>
-                  <textarea
-                    rows={6}
-                    value={form.detail}
-                    onChange={onChange("detail")}
-                    placeholder="ตัวอย่าง: ใบเหลือง, มีแมลงกัดกิน, ต้นเหี่ยว ฯลฯ"
-                    className="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
+              <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
+                <div className="md:col-span-2">
+                  <SelectField
+                    label="ลักษณะรายการ"
+                    placeholder="เลือก"
+                    options={["รายต้น", "ทั้งสวน"]}
+                    value={mode}
+                    onChange={(e) => setMode(e.target.value)}
                   />
                 </div>
 
-                <button
-                  type="submit"
-                  className="px-4 py-2 rounded-lg bg-emerald-700 text-white text-sm hover:bg-emerald-800"
-                >
-                  ส่งรายงานปัญหา
-                </button>
-              </form>
-            </Card>
-          </div>
-
-          {/* ตารางปัญหาที่เพิ่งส่งล่าสุด + search/filter */}
-          <div className="max-w-5xl mx-auto">
-            <Card>
-              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-2">
-                <h3 className="font-semibold text-slate-800">ปัญหาที่ส่งล่าสุด</h3>
-
-                <div className="flex gap-2">
-                  <div className="relative">
-                    <input
-                      value={q}
-                      onChange={(e) => setQ(e.target.value)}
-                      placeholder="ค้นหา: รหัส/TreeID/ประเภท/รายละเอียด"
-                      className="w-64 border rounded-lg px-3 py-2 pl-9 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
-                    />
-                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400">🔍</span>
+                {mode === "รายต้น" && (
+                  <div className="md:col-span-2">
+                    <label className="block text-sm text-slate-600 mb-1">ต้นทุเรียน</label>
+                    <select
+                      value={treeId}
+                      onChange={(e) => setTreeId(e.target.value)}
+                      className="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                    >
+                      <option value="">— เลือกต้น —</option>
+                      {trees.map((t) => (
+                        <option key={t.id || t.tree_id} value={t.id || t.tree_id}>
+                          {(t.id || t.tree_id) + (t.name ? ` — ${t.name}` : "")}
+                        </option>
+                      ))}
+                    </select>
                   </div>
+                )}
+
+                <div className={mode === "รายต้น" ? "md:col-span-6" : "md:col-span-4"}>
+                  <TextArea
+                    label="รายละเอียดปัญหา"
+                    placeholder="อธิบายสิ่งที่พบ"
+                    rows={3}
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                  />
+                </div>
+
+                <div className="md:col-span-6 flex justify-end">
+                  <PrimaryButton
+                    title="ส่งปัญหา"
+                    onClick={submit}
+                    disabled={!note.trim() || (mode === "รายต้น" && !treeId)}
+                  />
+                </div>
+              </div>
+            </Card>
+
+            {/* ฟิลเตอร์รายการ */}
+            <Card>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                <InputField
+                  label="ค้นหา"
+                  placeholder="ค้นหาจากข้อความ/สถานะ/โน้ตเจ้าของ"
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                />
+                <div>
+                  <label className="block text-sm text-slate-600 mb-1">ประเภท</label>
                   <select
-                    value={ftype}
-                    onChange={(e) => setFtype(e.target.value)}
-                    className="border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                    value={typeFilter}
+                    onChange={(e) => setTypeFilter(e.target.value)}
+                    className="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
                   >
-                    <option>ทั้งหมด</option>
-                    {problemTypes.map((p) => (
-                      <option key={p}>{p}</option>
-                    ))}
+                    <option value="">ทั้งหมด</option>
+                    <option value="รายต้น">รายต้น</option>
+                    <option value="ทั้งสวน">ทั้งสวน</option>
                   </select>
                 </div>
               </div>
+            </Card>
 
-              <div className="overflow-x-auto rounded-lg border bg-white shadow-sm">
-                <table className="min-w-full text-sm">
-                  <thead>
-                    <tr className="text-left bg-slate-50 text-slate-600">
-                      <th className="py-2 px-3">รหัส</th>
-                      <th className="py-2 px-3">เวลา</th>
-                      <th className="py-2 px-3">Tree ID</th>
-                      <th className="py-2 px-3">ประเภทปัญหา</th>
-                      <th className="py-2 px-3">รายละเอียด</th>
-                      <th className="py-2 px-3">สถานะ</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filtered.map((r, i) => (
-                      <tr key={r.id} className={i % 2 ? "bg-slate-50/60" : "bg-white"}>
-                        <td className="py-2 px-3">{r.id}</td>
-                        <td className="py-2 px-3">{fmtDT(r.createdAt)}</td>
-                        <td className="py-2 px-3">{r.treeId}</td>
-                        <td className="py-2 px-3">{r.type}</td>
-                        <td className="py-2 px-3">{r.detail}</td>
-                        <td className="py-2 px-3"><StatusBadge s={r.status} /></td>
+            {/* ตารางรายการของฉัน + ปุ่มยืนยันแก้ไข (UC5) */}
+            <Card>
+              {filtered.length === 0 ? (
+                <div className="text-sm text-slate-600">ยังไม่มีรายการปัญหา</div>
+              ) : (
+                <div className="overflow-x-auto rounded-lg border bg-white shadow-sm">
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className="text-left bg-slate-50 text-slate-600">
+                        <th className="py-2 px-3">#</th>
+                        <th className="py-2 px-3">ประเภท</th>
+                        <th className="py-2 px-3">ต้นทุเรียน</th>
+                        <th className="py-2 px-3">รายละเอียด</th>
+                        <th className="py-2 px-3">สถานะ</th>
+                        <th className="py-2 px-3">แนวทางแก้ (Owner)</th>
+                        <th className="py-2 px-3">อัปเดตล่าสุด</th>
+                        <th className="py-2 px-3">การกระทำ</th>
                       </tr>
-                    ))}
-                    {filtered.length === 0 && (
-                      <tr>
-                        <td className="py-6 px-3 text-center text-slate-500" colSpan={6}>
-                          ไม่พบรายการตรงกับเงื่อนไข
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {filtered.map((r, i) => (
+                        <tr key={r.id} className={i % 2 === 0 ? "bg-white" : "bg-slate-50/60"}>
+                          <td className="py-2 px-3">{r.id.slice(0, 8)}</td>
+                          <td className="py-2 px-3">{parseType(r.description)}</td>
+                          <td className="py-2 px-3">{r.tree_id || "-"}</td>
+                          <td className="py-2 px-3">
+                            {/* ตัด prefix [รายต้น]/[ทั้งสวน] ออกจากรายละเอียดเพื่อให้อ่านง่าย */}
+                            {String(r.description || "").replace(/^\[(รายต้น|ทั้งสวน)\]\s*/u, "")}
+                          </td>
+                          <td className="py-2 px-3">{badge(r.status)}</td>
+                          <td className="py-2 px-3">{r.owner_note || "-"}</td>
+                          <td className="py-2 px-3">{fmtDT(r.updated_at || r.created_at)}</td>
+                          <td className="py-2 px-3">
+                            {r.status === "ระหว่างแก้ไข" ? (
+                              <button
+                                onClick={() => confirmFixed(r.id)}
+                                className="px-3 py-1 rounded-lg text-white text-xs bg-emerald-700 hover:bg-emerald-800"
+                              >
+                                ✅ ยืนยันแก้ไขแล้ว
+                              </button>
+                            ) : (
+                              <span className="text-slate-400 text-xs">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <p className="text-xs text-slate-400 mt-2">
+                * สถานะเริ่มต้น: “เปิดปัญหา” → เจ้าของมอบหมายเป็น “ระหว่างแก้ไข” → นายหน้ายืนยันเป็น “แก้ไขแล้ว”
+              </p>
             </Card>
           </div>
         </main>

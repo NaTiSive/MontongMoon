@@ -1,46 +1,78 @@
 // src/pages/broker/BrokerSubmitOffer.jsx
-import React, { useMemo, useState } from "react";
-import { useLocation } from "react-router-dom";
+import React, { useMemo, useState, useEffect } from "react";
 import Sidebar from "../../components/Sidebar";
-import Header from "../../components/Header";
+import HeaderWrapper from "../../components/HeaderWrapper";
 import Card from "../../components/Card";
+import { useAuth } from "../../contexts/AuthContext";
+import { useNavigate } from "react-router-dom";
+import {
+  getOwnerDeadline,
+  getBrokerSubmissionContext,
+  createContract,
+  getBrokerApproval,
+  hasActiveOfferForCycle, // 👈 เพิ่มตัวนี้
+} from "../../api/contracts";
 
 export default function BrokerSubmitOffer() {
-  const { state } = useLocation();
-  // ดึงกำหนดปิดรับข้อเสนอที่ “เจ้าของสวน” ตั้งไว้ (ถ้าไม่ส่งมา ใช้ mock)
-  const deadline = state?.deadline ?? "2025-12-04T07:00:00";
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-  // ===== Mock (สรุปสถานะต้นในสวน) =====
-  const treeStatus = [
-    { key: "ปกติ", count: 2, box: "bg-emerald-100", text: "text-emerald-700", border: "border-emerald-300" },
-    { key: "มีปัญหา", count: 1, box: "bg-rose-100", text: "text-rose-700", border: "border-rose-300" },
-    { key: "ออกดอก", count: 1, box: "bg-sky-100", text: "text-sky-700", border: "border-sky-300" },
-    { key: "ออกผล", count: 1, box: "bg-amber-100", text: "text-amber-700", border: "border-amber-300" },
-  ];
+  useEffect(() => {
+    if (!user || user.role !== "broker") navigate("/login");
+  }, [user, navigate]);
 
-  // ===== ฟอร์ม =====
-  const [form, setForm] = useState({
-    price: "",     // บาท/กิโลกรัม
-    qty: "",       // กิโลกรัม
-    payMethod: "เงินสด",
-    note: "",
-  });
+  // โหลด deadline + สรุป
+  const [deadline, setDeadline] = useState(null);
+  const [summary, setSummary] = useState({ totalTrees: 0, problemsOpen: 0, byStatus: [] });
+  const [ctxLoading, setCtxLoading] = useState(true);
+  const [ctxError, setCtxError] = useState("");
 
-  // ===== ประวัติการยื่นข้อเสนอ (mock) =====
-  const [history, setHistory] = useState([
-    {
-      id: "H-002",
-      submittedAt: "2025-10-03T02:39:00",
-      deadline,
-      qty: 1000,
-      price: 120,
-      payMethod: "cash",
-      note: "ของเกรด A",
-      status: "รอการพิจารณา",
-    },
-  ]);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        setCtxLoading(true);
+        const d = await getOwnerDeadline();
+        const s = await getBrokerSubmissionContext({ broker_id: user?.broker_id, owner_id: 1 });
+        if (!alive) return;
+        setDeadline(d?.current_deadline_date ?? null);
+        setSummary(s);
+      } catch (e) {
+        if (!alive) return;
+        setCtxError(e?.message || "โหลดข้อมูลไม่สำเร็จ");
+      } finally {
+        if (!alive) return;
+        setCtxLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, [user]);
 
-  // ===== Helpers =====
+  // สถานะอนุมัติล่าสุด + คุณสมบัติในการยื่น
+  const latest = user?.broker_id != null ? getBrokerApproval(user.broker_id) : "pending";
+  const now = Date.now();
+  const isClosed = useMemo(() => (deadline ? new Date(deadline).getTime() <= now : false), [deadline, now]);
+
+  // มีข้อเสนอ active ในรอบนี้อยู่แล้วหรือยัง?
+  const alreadyActiveInCycle = useMemo(() => {
+    if (!user?.broker_id) return false;
+    return hasActiveOfferForCycle({ broker_id: user.broker_id, cycle_deadline: deadline });
+  }, [user?.broker_id, deadline]);
+
+  // ✅ เงื่อนไขอนุญาตให้ “ยื่นได้”
+  // - อนุมัติแล้ว: ยื่นได้ (เว้นแต่คุณจะจำกัด 1 ข้อเสนอ/รอบ ก็ใช้ alreadyActiveInCycle ร่วมด้วย)
+  // - ยัง pending: ยื่นได้ถ้า "ยังไม่เคยยื่น/ไม่มี active offer" ในรอบนี้
+  const eligibleToSubmit =
+    latest === "approved" ? !alreadyActiveInCycle : !alreadyActiveInCycle;
+
+  // อินพุตจะปิดถ้า "ไม่เข้าข่ายยื่น" หรือ "เลยกำหนด"
+  const disabled = !eligibleToSubmit || isClosed;
+
+  // ฟอร์ม
+  const [form, setForm] = useState({ price: "", qty: "", payMethod: "เงินสด", note: "" });
+  const [history, setHistory] = useState([]);
+
   const fmtDT = (iso) =>
     new Date(iso).toLocaleString("th-TH", {
       year: "numeric",
@@ -50,112 +82,104 @@ export default function BrokerSubmitOffer() {
       minute: "2-digit",
     });
 
-  const now = Date.now();
-  const isClosed = useMemo(() => new Date(deadline).getTime() <= now, [deadline, now]);
-
   const update = (k) => (e) => setForm((p) => ({ ...p, [k]: e.target.value }));
 
-  const submit = () => {
-    const price = Number(form.price);
-    const qty = Number(form.qty);
-    if (!price || price <= 0) return alert("กรุณากรอกราคา (บาท/กิโลกรัม) ให้ถูกต้อง");
-    if (!qty || qty <= 0) return alert("กรุณากรอกปริมาณ (กิโลกรัม) ให้ถูกต้อง");
+  const submit = async () => {
+    if (!eligibleToSubmit) {
+      if (latest !== "approved" && alreadyActiveInCycle) {
+        return alert("คุณได้ยื่นข้อเสนอในรอบนี้แล้ว กรุณารอการพิจารณา");
+      }
+      return alert("บัญชีของคุณยังไม่ได้รับอนุมัติ");
+    }
     if (isClosed) return alert("เลยกำหนดปิดรับข้อเสนอแล้ว");
 
-    const rec = {
-      id: `H-${String(history.length + 1).padStart(3, "0")}`,
-      submittedAt: new Date().toISOString(),
-      deadline,
-      qty,
-      price,
-      payMethod: form.payMethod,
-      note: form.note?.trim() || "-",
-      status: "รอการพิจารณา",
-    };
-    setHistory((h) => [rec, ...h]);
-    setForm({ price: "", qty: "", payMethod: "เงินสด", note: "" });
-    alert("ส่งข้อเสนอเรียบร้อย");
+    const price = Number(form.price);
+    const qty = Number(form.qty);
+    if (!price || price <= 0) return alert("กรุณากรอกราคาให้ถูกต้อง");
+    if (!qty || qty <= 0) return alert("กรุณากรอกปริมาณให้ถูกต้อง");
+
+    try {
+      const row = await createContract({
+        broker_id: user?.broker_id,
+        qtt_estimate: qty,
+        offerprice: price,
+        payment_term: form.payMethod,
+        note: form.note?.trim() || "",
+      });
+      setHistory((h) => [row, ...h]);
+      setForm({ price: "", qty: "", payMethod: "เงินสด", note: "" });
+      alert("ส่งข้อเสนอสำเร็จ");
+      navigate("/broker/dashboard");
+    } catch (e) {
+      alert(e?.message || "ส่งข้อเสนอไม่สำเร็จ");
+    }
   };
 
   return (
-    <div className="min-h-screen w-full bg-slate-50 text-slate-900 flex">
-      {/* Sidebar */}
-      <div className="hidden md:block w-56 lg:w-64 shrink-0 sticky top-0 h-screen bg-white shadow-md">
-        <Sidebar />
-      </div>
+    <div className={`min-h-screen w-full bg-slate-50 text-slate-900 flex flex-col md:flex-row ${isSidebarOpen ? "overflow-hidden md:overflow-auto" : ""}`}>
+      <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
+      {isSidebarOpen && <div className="fixed inset-0 bg-black/40 z-40 md:hidden" onClick={() => setIsSidebarOpen(false)} />}
 
-      {/* Main */}
       <div className="flex-1 min-w-0 flex flex-col">
-        <Header
-          title="ยื่นข้อเสนอซื้อทุเรียนจากสวน"
-          subtitle="โปรดระบุรายละเอียดที่ชัดเจนเพื่อให้เจ้าของสวนพิจารณาและตอบรับอย่างรวดเร็ว"
-          name="สมชาย เข้มแข็ง"
-          role="เจ้าของสวน"
+        <HeaderWrapper
+          onMenuClick={() => setIsSidebarOpen(true)}
+          title="ยื่นข้อเสนอ"
+          subtitle="ส่งราคาและรายละเอียดให้เจ้าของสวน"
         />
 
         <main className="p-4 sm:p-6 pt-28">
           <div className="max-w-3xl mx-auto space-y-4">
-            {/* สรุปสถานะต้น */}
-            <Card>
-              <h3 className="font-semibold text-slate-800 mb-3">สถานะต้นทุเรียนในสวน</h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {treeStatus.map((s) => (
-                  <div key={s.key} className={`rounded-xl border ${s.border} bg-white shadow-sm`}>
-                    <div className={`px-4 py-5 rounded-xl ${s.box}`}>
-                      <div className={`text-sm ${s.text}`}>{s.key}</div>
-                      <div className="mt-1 text-2xl font-semibold">{s.count}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </Card>
 
-            {/* กำหนดปิดรับข้อเสนอ */}
-            <Card>
-              <h3 className="font-semibold text-slate-800 mb-2">กำหนดปิดรับข้อเสนอจากฝ่ายเจ้าของสวน</h3>
-              <div className="rounded-lg border bg-slate-50 p-3">
-                <div className="text-sm text-slate-500">ปิดรับข้อเสนอเมื่อ</div>
-                <div className="text-base font-semibold">{fmtDT(deadline)}</div>
-                <p className="text-xs text-slate-500 mt-2">
-                  โปรดส่งข้อเสนอภายในเวลาที่กำหนดเพื่อให้เจ้าของสวนพิจารณาได้ทันเวลา
-                </p>
-                <p className="text-xs text-slate-400">อัปเดตล่าสุด 3 ต.ค. 2568 02:13</p>
-              </div>
-              {isClosed && (
-                <div className="mt-2 text-sm text-rose-600">
-                  * เลยกำหนดปิดรับข้อเสนอแล้ว ไม่สามารถส่งข้อเสนอใหม่ได้
+            {/* แบนเนอร์ตามสถานะ */}
+            {latest !== "approved" && !alreadyActiveInCycle && !isClosed && (
+              <Card>
+                <div className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+                  บัญชีของคุณยัง <b>รอการอนุมัติ</b> แต่คุณยังสามารถ<strong>ยื่นข้อเสนอได้ 1 ครั้งในรอบนี้</strong>
                 </div>
-              )}
-            </Card>
+              </Card>
+            )}
+            {latest !== "approved" && alreadyActiveInCycle && (
+              <Card>
+                <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                  คุณได้ยื่นข้อเสนอในรอบนี้แล้ว กรุณารอการพิจารณา
+                </div>
+              </Card>
+            )}
+            {isClosed && (
+              <Card>
+                <div className="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-lg p-3">
+                  * เลยกำหนดปิดรับข้อเสนอแล้ว
+                </div>
+              </Card>
+            )}
 
-            {/* ฟอร์มยื่นข้อเสนอ */}
+            {/* (ส่วนสรุป ฯลฯ ของคุณคงเดิม) */}
+
             <Card>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm text-slate-600 mb-1">
-                    ราคาที่เสนอ (บาทต่อกิโลกรัม)
-                  </label>
+                  <label className="block text-sm text-slate-600 mb-1">ราคาที่เสนอ (บาทต่อกิโลกรัม)</label>
                   <input
                     type="number"
                     step="0.1"
                     min="0"
+                    disabled={disabled}
                     value={form.price}
                     onChange={update("price")}
                     placeholder="เช่น 120"
-                    className="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                    className="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none disabled:bg-gray-100"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm text-slate-600 mb-1">
-                    ปริมาณที่ต้องการ (กิโลกรัม)
-                  </label>
+                  <label className="block text-sm text-slate-600 mb-1">ปริมาณที่ต้องการ (กิโลกรัม)</label>
                   <input
                     type="number"
                     min="0"
+                    disabled={disabled}
                     value={form.qty}
                     onChange={update("qty")}
                     placeholder="เช่น 1000"
-                    className="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                    className="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none disabled:bg-gray-100"
                   />
                 </div>
               </div>
@@ -163,72 +187,41 @@ export default function BrokerSubmitOffer() {
               <div className="mt-3">
                 <label className="block text-sm text-slate-600 mb-1">วิธีการชำระเงิน</label>
                 <select
+                  disabled={disabled}
                   value={form.payMethod}
                   onChange={update("payMethod")}
-                  className="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                  className="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none disabled:bg-gray-100"
                 >
                   <option>เงินสด</option>
                   <option>โอนเงิน</option>
-                  <option>เช็ค</option>
+                  <option>อื่นๆ</option>
                 </select>
               </div>
 
               <div className="mt-3">
                 <label className="block text-sm text-slate-600 mb-1">หมายเหตุ / รายละเอียดเพิ่มเติม</label>
                 <input
+                  disabled={disabled}
                   value={form.note}
                   onChange={update("note")}
-                  placeholder="ระบุเงื่อนไขเพิ่มเติม เช่น รถยก/ต้องการ กำหนดการขนส่ง"
-                  className="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                  placeholder="ระบุเงื่อนไขเพิ่มเติม เช่น รถยก/กำหนดการขนส่ง"
+                  className="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none disabled:bg-gray-100"
                 />
               </div>
 
               <button
                 onClick={submit}
-                disabled={isClosed}
+                disabled={disabled}
                 className={`mt-4 px-4 py-2 rounded-lg text-white text-sm ${
-                  isClosed ? "bg-slate-400 cursor-not-allowed" : "bg-emerald-700 hover:bg-emerald-800"
+                  disabled ? "bg-slate-400 cursor-not-allowed" : "bg-emerald-700 hover:bg-emerald-800"
                 }`}
               >
                 ส่งข้อเสนอซื้อ
               </button>
             </Card>
-
-            {/* ประวัติการยื่นข้อเสนอของคุณ */}
-            <Card>
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="font-semibold text-slate-800">ประวัติยื่นข้อเสนอของคุณ</h3>
-                <div className="text-xs text-slate-500">ทั้งหมด {history.length} รายการ</div>
-              </div>
-
-              <div className="space-y-3">
-                {history.map((h) => (
-                  <div key={h.id} className="rounded-xl bg-white shadow-sm p-4">
-                    <div className="text-sm text-slate-600 mb-1">
-                      ส่งเมื่อ: {fmtDT(h.submittedAt)} • กำหนดปิดรับข้อเสนอ: {fmtDT(h.deadline)}
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-2 text-sm">
-                      <Info label="ปริมาณทั้งหมด" value={`${h.qty.toLocaleString("th-TH")} กิโลกรัม`} />
-                      <Info label="ราคาที่เสนอ" value={`${h.price.toLocaleString("th-TH")} บาท/กิโลกรัม`} />
-                      <Info label="วิธีการชำระเงิน" value={h.payMethod} />
-                      <Info label="หมายเหตุ" value={h.note || "-"} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </Card>
           </div>
         </main>
       </div>
-    </div>
-  );
-}
-
-function Info({ label, value }) {
-  return (
-    <div>
-      <div className="text-slate-500">{label}</div>
-      <div className="font-medium">{value}</div>
     </div>
   );
 }

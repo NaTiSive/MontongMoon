@@ -1,88 +1,108 @@
-import React, { useState } from "react";
+// src/pages/Profile.jsx
+import React, { useState, useEffect } from "react";
 import InputField from "../components/InputField";
-import TextArea from "../components/TextArea";
 import PrimaryButton from "../components/PrimaryButton";
 import PageHeader from "../components/PageHeader";
-import Card from "../components/Card";
+import { useAuth } from "../contexts/AuthContext";
+import { useNavigate } from "react-router-dom";
+import { FiArrowLeft } from "react-icons/fi"; // ✅ เพิ่มไอคอนลูกศรย้อนกลับ
 
-export default function EditProfile() {
+export default function Profile() {
+  const { user, updateUser } = useAuth();
+  const navigate = useNavigate();
   const [form, setForm] = useState({
-    name: "สมชาย ใจดี",
-    phone: "099-000-0000",
-    email: "broker@durianmail.com",
-    address: "123 หมู่บ้านผลไม้เมืองแหล่งทุเรียน",
+    name: "",
+    phone: "",
+    email: "",
+    address: "",
     password: "",
   });
 
-  const handleChange = (key) => (e) =>
-    setForm((prev) => ({ ...prev, [key]: e.target.value }));
+  useEffect(() => {
+    if (user) {
+      setForm({
+        name: user.name || "",
+        phone: user.phone || "",
+        email: user.email || "",
+        address: user.address || "",
+        password: "",
+      });
+    }
+  }, [user]);
+
+  const handleChange = (e) => {
+    setForm({ ...form, [e.target.name]: e.target.value });
+  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    console.log("ข้อมูลที่อัปเดต:", form);
-    alert("บันทึกข้อมูลสำเร็จ (mockup)");
+    updateUser(form);
+    alert("บันทึกข้อมูลสำเร็จ!");
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 p-6">
-      {/* โลโก้ด้านบน */}
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 relative">
       <img
         src="/Logo.png"
-        alt="Logo"
-        className="w-50 h-50 animate-fade-in"
+        alt="Durian Farm"
+        className="rounded-lg w-40 h-40 mb-4"
       />
-        
-      <Card>
-        <PageHeader
-          title="แก้ไขข้อมูลโปรไฟล์"
-          subtitle="ปรับปรุงข้อมูลการติดต่อและรหัสผ่านของคุณได้ที่นี่"
-        />
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <InputField
-              label="ชื่อ"
-              value={form.name}
-              onChange={handleChange("name")}
-              placeholder="สมชาย ใจดี"
-            />
-            <InputField
-              label="เบอร์โทร"
-              value={form.phone}
-              onChange={handleChange("phone")}
-              placeholder="099-000-0000"
-            />
-          </div>
+      <div className="bg-white shadow-lg rounded-xl p-8 w-full max-w-md relative">
+        {/* 🔙 ปุ่มย้อนกลับ */}
+        <button
+          onClick={() => navigate(-1)}
+          className="absolute top-6 left-6 flex items-center gap-1.5 
+                     text-emerald-700 border border-emerald-700 text-xs rounded-lg px-3 py-1.5
+                     hover:bg-emerald-700 hover:text-white transition-all"
+        >
+          <FiArrowLeft size={14} />
+          กลับสู่หน้าก่อนหน้า
+        </button>
 
+        <PageHeader title="โปรไฟล์ของฉัน" subtitle="แก้ไขข้อมูลส่วนตัวของคุณ" />
+
+        <form onSubmit={handleSubmit} className="mt-6">
+          <InputField
+            label="ชื่อ - สกุล"
+            name="name"
+            value={form.name}
+            onChange={handleChange}
+          />
+          <InputField
+            label="เบอร์โทรศัพท์"
+            name="phone"
+            value={form.phone}
+            onChange={handleChange}
+          />
           <InputField
             label="อีเมล"
-            type="email"
+            name="email"
             value={form.email}
-            onChange={handleChange("email")}
-            placeholder="broker@durianmail.com"
+            onChange={handleChange}
+            disabled
           />
-
-          <TextArea
-            label="ที่อยู่"
-            rows={3}
-            value={form.address}
-            onChange={handleChange("address")}
-            placeholder="123 หมู่บ้านผลไม้เมืองแหล่งทุเรียน"
-          />
-
           <InputField
-            label="รหัสผ่านใหม่ (ถ้าต้องการเปลี่ยน)"
+            label="ที่อยู่"
+            name="address"
+            value={form.address}
+            onChange={handleChange}
+          />
+          <InputField
+            label="รหัสผ่านใหม่ (ถ้ามี)"
+            name="password"
             type="password"
             value={form.password}
-            onChange={handleChange("password")}
-            placeholder="กรอกรหัสผ่านใหม่"
+            onChange={handleChange}
           />
 
-          <div className="flex justify-start mt-6">
-            <PrimaryButton title="บันทึก" className="" />
-          </div>
+          <PrimaryButton
+            title="บันทึกการเปลี่ยนแปลง"
+            type="submit"
+            className="w-full mt-4"
+          />
         </form>
-      </Card>
+      </div>
     </div>
   );
 }

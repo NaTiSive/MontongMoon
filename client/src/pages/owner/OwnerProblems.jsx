@@ -1,219 +1,197 @@
-// src/pages/owner/OwnerProblemsCards.jsx
-import React, { useMemo, useState } from "react";
+// src/pages/owner/OwnerProblems.jsx
+import React, { useEffect, useMemo, useState } from "react";
 import Sidebar from "../../components/Sidebar";
-import Header from "../../components/Header";
+import HeaderWrapper from "../../components/HeaderWrapper";
 import Card from "../../components/Card";
-import { FaMagnifyingGlass } from "react-icons/fa6";
+import { useAuth } from "../../contexts/AuthContext";
+import { useNavigate } from "react-router-dom";
+
+import { listProblems, ownerAssignNoteAndSetPending } from "../../api/problems";
 
 export default function OwnerProblems() {
-  // ── ตัวอย่างหลายปัญหา ───────────────────────────────
-  const sampleIssues = [
-    {
-      id: 1,
-      type: "overall", // overall = ปัญหาภาพรวม, byTree = ปัญหารายต้น
-      title: "แรงดันน้ำตก",
-      reportedAt: "2025-09-20T09:30:00",
-      treeId: "-",
-      email: "workerA@email.com",
-      phone: "081-234-5678",
-      address: "โซน C - ระบบน้ำกลางสวน",
-      detail: "สปริงเกอร์ปลายแถวไม่ออกน้ำ ต้องตรวจแรงดันปั๊มหลัก",
-    },
-    {
-      id: 2,
-      type: "byTree",
-      title: "ใบไหม้จากแสงแดด",
-      reportedAt: "2025-09-21T13:15:00",
-      treeId: "T-032",
-      email: "workerB@email.com",
-      phone: "081-111-2222",
-      address: "โซน B",
-      detail: "ใบไหม้บริเวณยอด คาดว่าโดนแดดแรงจัดในช่วงเที่ยง",
-    },
-    {
-      id: 3,
-      type: "byTree",
-      title: "รากเน่า",
-      reportedAt: "2025-09-23T16:05:00",
-      treeId: "T-041",
-      email: "workerC@email.com",
-      phone: "081-333-4444",
-      address: "โซน D",
-      detail: "โคนต้นชื้นตลอด มีคราบและกลิ่นเน่า ควรขุดตรวจราก",
-    },
-    {
-      id: 4,
-      type: "overall",
-      title: "ไฟส่องสว่างทางเดินเสีย",
-      reportedAt: "2025-10-02T19:40:00",
-      treeId: "-",
-      email: "maint@email.com",
-      phone: "081-000-9999",
-      address: "ทางเดินกลางสวน",
-      detail: "ไฟทางช่วง A-B ไม่ติดหลายดวง ต้องตรวจสายไฟ",
-    },
-  ];
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-  // ── ค้นหา ────────────────────────────────────────────
+  useEffect(() => {
+    if (!user || user.role !== "owner") navigate("/login");
+  }, [user, navigate]);
+
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
+
   const [q, setQ] = useState("");
-  const filtered = useMemo(() => {
-    const query = q.trim().toLowerCase();
-    if (!query) return sampleIssues;
-    return sampleIssues.filter((x) => {
-      const hay =
-        `${x.title} ${x.treeId} ${x.address} ${x.email} ${x.phone} ${x.detail} ${x.type}`.toLowerCase();
-      return hay.includes(query);
-    });
-  }, [q]);
+  const [typeFilter, setTypeFilter] = useState(""); // "", "รายต้น", "ทั้งสวน"
+  const [noteMap, setNoteMap] = useState({}); // { id: draftNote }
 
-  // ── เก็บข้อความคำแนะนำแยกตามการ์ด ───────────────────
-  const [adviceMap, setAdviceMap] = useState({});
-  const setAdvice = (id, val) =>
-    setAdviceMap((prev) => ({ ...prev, [id]: val }));
-
-  // ── helpers ───────────────────────────────────────────
-  const fmt = (iso) =>
-    new Date(iso).toLocaleString("th-TH", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    });
-
-  const TypeBadge = ({ type }) => (
-    <span
-      className={
-        "px-3 py-1 rounded-full text-xs font-medium " +
-        (type === "overall"
-          ? "bg-rose-100 text-rose-700"
-          : "bg-emerald-100 text-emerald-700")
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        setLoading(true);
+        const all = listProblems();
+        if (!alive) return;
+        setRows(all);
+      } catch (e) {
+        if (!alive) return;
+        setErr(e?.message || "โหลดรายการปัญหาไม่สำเร็จ");
+      } finally {
+        if (!alive) return;
+        setLoading(false);
       }
-    >
-      {type === "overall" ? "ปัญหาภาพรวม" : "ปัญหารายต้น"}
-    </span>
-  );
+    })();
+    return () => { alive = false; };
+  }, []);
 
-  const InfoRow = ({ label, value }) => (
-    <div>
-      <div className="text-slate-500">{label}</div>
-      <div className="font-medium">{value || "-"}</div>
-    </div>
-  );
+  // แยกประเภทจาก description ที่ broker ใส่ prefix ไว้ เช่น "[รายต้น] ใบไหม้..."
+  const parseType = (desc = "") => {
+    if (desc.startsWith("[รายต้น]")) return "รายต้น";
+    if (desc.startsWith("[ทั้งสวน]")) return "ทั้งสวน";
+    return "-";
+  };
+  const stripTypePrefix = (desc = "") => String(desc).replace(/^\[(รายต้น|ทั้งสวน)\]\s*/u, "");
 
-  const sendAdvice = (issue) => {
-    const text = adviceMap[issue.id]?.trim();
-    if (!text) {
-      alert("โปรดพิมพ์คำแนะนำก่อนส่ง");
-      return;
+  const filtered = useMemo(() => {
+    const k = q.trim().toLowerCase();
+    return rows.filter((p) => {
+      const text = `${p.id} ${p.tree_id ?? ""} ${p.description ?? ""} ${p.owner_note ?? ""} ${p.status ?? ""}`.toLowerCase();
+      const hitQ = k ? text.includes(k) : true;
+      const tp = parseType(p.description);
+      const hitType = typeFilter ? tp === typeFilter : true;
+      return hitQ && hitType;
+    });
+  }, [rows, q, typeFilter]);
+
+  const setPending = (id) => {
+    const note = noteMap[id]?.trim() || "";
+    // อนุญาตให้เว้นว่างได้ แต่ถามยืนยันก่อน
+    if (!note) {
+      if (!window.confirm("ไม่ใส่โน้ตตอนมอบหมายใช่ไหม?")) return;
     }
-    // TODO: เรียก API ส่งคำแนะนำจริงได้ที่นี่
-    console.log("ส่งคำแนะนำให้ issue:", issue.id, "ข้อความ:", text);
-    alert(`ส่งคำแนะนำให้เรื่อง "${issue.title}" เรียบร้อย`);
-    setAdvice(issue.id, ""); // ล้างช่องหลังส่ง
+    const rec = ownerAssignNoteAndSetPending(id, note); // → สถานะ “ระหว่างแก้ไข”
+    setRows((r) => r.map((x) => (x.id === id ? rec : x)));
+    setNoteMap((m) => ({ ...m, [id]: "" }));
   };
 
-  return (
-    <div className="min-h-screen w-full bg-slate-50 text-slate-900 flex">
-      {/* Sidebar */}
-      <div className="hidden md:block w-56 lg:w-64 shrink-0 sticky top-0 h-screen bg-white shadow-md">
-        <Sidebar />
-      </div>
+  const badge = (status) => {
+    const cls =
+      status === "เปิดปัญหา"
+        ? "bg-rose-100 text-rose-700"
+        : status === "ระหว่างแก้ไข"
+        ? "bg-amber-100 text-amber-700"
+        : "bg-emerald-100 text-emerald-700";
+    return <span className={`px-3 py-1 rounded-lg text-xs font-medium ${cls}`}>{status}</span>;
+  };
 
-      {/* Main */}
+  const fmtDT = (iso) =>
+    iso ? new Date(iso).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" }) : "-";
+
+  return (
+    <div
+      className={`min-h-screen w-full bg-slate-50 text-slate-900 flex flex-col md:flex-row ${
+        isSidebarOpen ? "overflow-hidden md:overflow-auto" : ""
+      }`}
+    >
+      <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
+      {isSidebarOpen && (
+        <div className="fixed inset-0 bg-black/40 z-40 md:hidden" onClick={() => setIsSidebarOpen(false)} />
+      )}
+
       <div className="flex-1 min-w-0 flex flex-col">
-        <Header
-          title="ปัญหาที่ผู้รับเหมารายงาน"
-          subtitle="ติดตามสถานการณ์ในสวนและให้คำแนะนำกลับไปยังผู้รับเหมา"
-          name="สมชาย เข้มแข็ง"
-          role="เจ้าของสวน"
+        <HeaderWrapper
+          onMenuClick={() => setIsSidebarOpen(true)}
+          title="จัดการปัญหาในสวน"
+          subtitle="อ่านรายงานจากนายหน้า—มอบหมายงานและติดตามสถานะ"
         />
 
-        <main className="p-4 sm:p-6 space-y-4">
-          {/* ค้นหา */}
-          <div className="flex justify-end">
-            <div className="relative w-full sm:w-80">
-              <input
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="ค้นหา หัวข้อ/Tree/โซน/ผู้แจ้ง/รายละเอียด…"
-                className="w-full rounded-lg border px-3 py-2 pl-9 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
-              />
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
-                <FaMagnifyingGlass />
-              </span>
-            </div>
-          </div>
-
-          {/* การ์ดหลายใบเรียงกัน */}
-          <div className="max-w-4xl mx-auto space-y-4">
-            {filtered.length === 0 ? (
-              <div className="text-center text-slate-500 py-8 bg-white rounded-lg border shadow-sm">
-                ไม่พบปัญหาที่ตรงกับคำค้นหา
+        <main className="p-4 sm:p-6 pt-28">
+          <div className="max-w-6xl mx-auto space-y-4">
+            {/* แถบค้นหา + ฟิลเตอร์ประเภท */}
+            <Card>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="md:col-span-2">
+                  <label className="block text-sm text-slate-600 mb-1">ค้นหา</label>
+                  <input
+                    value={q}
+                    onChange={(e) => setQ(e.target.value)}
+                    placeholder="ค้นหา #ไอดี / ต้นไม้ / สถานะ / โน้ต"
+                    className="w-full border rounded-lg px-3 py-2 bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-600 mb-1">ประเภท</label>
+                  <select
+                    value={typeFilter}
+                    onChange={(e) => setTypeFilter(e.target.value)}
+                    className="w-full border rounded-lg px-3 py-2 bg-white"
+                  >
+                    <option value="">ทั้งหมด</option>
+                    <option value="รายต้น">รายต้น</option>
+                    <option value="ทั้งสวน">ทั้งสวน</option>
+                  </select>
+                </div>
               </div>
+            </Card>
+
+            {/* ตารางรายการ */}
+            {loading ? (
+              <Card>กำลังโหลด…</Card>
+            ) : err ? (
+              <Card className="text-rose-600">{err}</Card>
+            ) : filtered.length === 0 ? (
+              <Card>ยังไม่มีรายการปัญหา</Card>
             ) : (
-              filtered
-                .sort((a, b) => (a.reportedAt < b.reportedAt ? 1 : -1))
-                .map((issue) => (
-                  <Card key={issue.id}>
-                    {/* หัวเรื่อง + badge */}
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <h2 className="text-lg font-semibold text-slate-800">
-                          {issue.title}
-                        </h2>
-                        <p className="text-sm text-slate-600">
-                          รายงานเมื่อ {fmt(issue.reportedAt)}
-                        </p>
-                      </div>
-                      <TypeBadge type={issue.type} />
-                    </div>
-
-                    {/* สองคอลัมน์ข้อมูล */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4 text-sm">
-                      <div className="space-y-4">
-                        <InfoRow label="Tree ID" value={issue.treeId} />
-                        <InfoRow label="อีเมล" value={issue.email} />
-                        <InfoRow label="ที่อยู่ / โซน" value={issue.address} />
-                      </div>
-                      <div className="space-y-4">
-                        <InfoRow label="เบอร์ติดต่อ" value={issue.phone} />
-                      </div>
-                    </div>
-
-                    {/* รายละเอียดปัญหา */}
-                    <div className="mt-5">
-                      <label className="block text-sm text-slate-600 mb-1">
-                        รายละเอียดปัญหา
-                      </label>
-                      <div className="bg-slate-100 rounded-lg px-3 py-3 min-h-[80px] text-sm text-slate-800">
-                        {issue.detail || "—"}
-                      </div>
-                    </div>
-
-                    {/* คำแนะนำรายเรื่อง */}
-                    <div className="mt-5">
-                      <label className="block text-sm text-slate-600 mb-1">
-                        ให้คำแนะนำหรือวิธีแก้ไขไปยังผู้รับเหมา
-                      </label>
-                      <textarea
-                        rows={3}
-                        value={adviceMap[issue.id] ?? ""}
-                        onChange={(e) => setAdvice(issue.id, e.target.value)}
-                        className="w-full border rounded-lg px-3 py-2 text-sm text-slate-800 outline-none bg-slate-100 focus:bg-white focus:ring-2 focus:ring-emerald-500"
-                      />
-                      <div className="mt-3">
-                        <button
-                          onClick={() => sendAdvice(issue)}
-                          className="px-4 py-2 rounded-lg bg-emerald-700 text-white text-sm hover:bg-emerald-800"
-                        >
-                          ส่งคำแนะนำ
-                        </button>
-                      </div>
-                    </div>
-                  </Card>
-                ))
+              <Card>
+                <div className="overflow-x-auto rounded-lg border bg-white shadow-sm">
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className="text-left bg-slate-50 text-slate-600">
+                        <th className="py-2 px-3">#</th>
+                        <th className="py-2 px-3">ประเภท</th>
+                        <th className="py-2 px-3">ต้นทุเรียน</th>
+                        <th className="py-2 px-3">รายละเอียดจากนายหน้า</th>
+                        <th className="py-2 px-3">สถานะ</th>
+                        <th className="py-2 px-3">แนวทางแก้ (Owner)</th>
+                        <th className="py-2 px-3">อัปเดตล่าสุด</th>
+                        <th className="py-2 px-3">การกระทำ</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filtered.map((p, i) => (
+                        <tr key={p.id} className={i % 2 === 0 ? "bg-white" : "bg-slate-50/60"}>
+                          <td className="py-2 px-3">{p.id.slice(0, 8)}</td>
+                          <td className="py-2 px-3">{parseType(p.description)}</td>
+                          <td className="py-2 px-3">{p.tree_id || "-"}</td>
+                          <td className="py-2 px-3">{stripTypePrefix(p.description)}</td>
+                          <td className="py-2 px-3">{badge(p.status)}</td>
+                          <td className="py-2 px-3">
+                            <input
+                              value={noteMap[p.id] ?? p.owner_note ?? ""}
+                              onChange={(e) => setNoteMap((m) => ({ ...m, [p.id]: e.target.value }))}
+                              placeholder="พิมพ์แนวทางแก้/มอบหมายงาน"
+                              className="w-64 border rounded-lg px-2 py-1"
+                            />
+                          </td>
+                          <td className="py-2 px-3">{fmtDT(p.updated_at || p.created_at)}</td>
+                          <td className="py-2 px-3">
+                            {p.status === "เปิดปัญหา" ? (
+                              <button
+                                onClick={() => setPending(p.id)}
+                                className="px-3 py-1 rounded-lg text-white text-xs bg-amber-700 hover:bg-amber-800"
+                              >
+                                มอบหมายเป็น “ระหว่างแก้ไข”
+                              </button>
+                            ) : (
+                              <span className="text-slate-400 text-xs">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
             )}
           </div>
         </main>
