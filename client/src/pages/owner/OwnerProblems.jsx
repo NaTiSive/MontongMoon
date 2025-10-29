@@ -6,10 +6,7 @@ import Card from "../../components/Card";
 import { useAuth } from "../../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 
-import {
-  listProblems,
-  ownerAssignNoteAndSetPending,
-} from "../../api/problems";
+import { listProblems, ownerAssignNoteAndSetPending } from "../../api/problems";
 
 export default function OwnerProblems() {
   const { user } = useAuth();
@@ -25,7 +22,8 @@ export default function OwnerProblems() {
   const [err, setErr] = useState("");
 
   const [q, setQ] = useState("");
-  const [noteMap, setNoteMap] = useState({}); // { id: noteDraft }
+  const [typeFilter, setTypeFilter] = useState(""); // "", "รายต้น", "ทั้งสวน"
+  const [noteMap, setNoteMap] = useState({}); // { id: draftNote }
 
   useEffect(() => {
     let alive = true;
@@ -46,22 +44,32 @@ export default function OwnerProblems() {
     return () => { alive = false; };
   }, []);
 
+  // แยกประเภทจาก description ที่ broker ใส่ prefix ไว้ เช่น "[รายต้น] ใบไหม้..."
+  const parseType = (desc = "") => {
+    if (desc.startsWith("[รายต้น]")) return "รายต้น";
+    if (desc.startsWith("[ทั้งสวน]")) return "ทั้งสวน";
+    return "-";
+  };
+  const stripTypePrefix = (desc = "") => String(desc).replace(/^\[(รายต้น|ทั้งสวน)\]\s*/u, "");
+
   const filtered = useMemo(() => {
     const k = q.trim().toLowerCase();
-    if (!k) return rows;
-    return rows.filter((p) =>
-      `${p.id} ${p.tree_id} ${p.description} ${p.owner_note} ${p.status}`
-        .toLowerCase()
-        .includes(k)
-    );
-  }, [rows, q]);
+    return rows.filter((p) => {
+      const text = `${p.id} ${p.tree_id ?? ""} ${p.description ?? ""} ${p.owner_note ?? ""} ${p.status ?? ""}`.toLowerCase();
+      const hitQ = k ? text.includes(k) : true;
+      const tp = parseType(p.description);
+      const hitType = typeFilter ? tp === typeFilter : true;
+      return hitQ && hitType;
+    });
+  }, [rows, q, typeFilter]);
 
   const setPending = (id) => {
     const note = noteMap[id]?.trim() || "";
+    // อนุญาตให้เว้นว่างได้ แต่ถามยืนยันก่อน
     if (!note) {
       if (!window.confirm("ไม่ใส่โน้ตตอนมอบหมายใช่ไหม?")) return;
     }
-    const rec = ownerAssignNoteAndSetPending(id, note);
+    const rec = ownerAssignNoteAndSetPending(id, note); // → สถานะ “ระหว่างแก้ไข”
     setRows((r) => r.map((x) => (x.id === id ? rec : x)));
     setNoteMap((m) => ({ ...m, [id]: "" }));
   };
@@ -99,82 +107,91 @@ export default function OwnerProblems() {
 
         <main className="p-4 sm:p-6 pt-28">
           <div className="max-w-6xl mx-auto space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="text-sm text-slate-600">
-                ทั้งหมด {rows.length} รายการ
+            {/* แถบค้นหา + ฟิลเตอร์ประเภท */}
+            <Card>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="md:col-span-2">
+                  <label className="block text-sm text-slate-600 mb-1">ค้นหา</label>
+                  <input
+                    value={q}
+                    onChange={(e) => setQ(e.target.value)}
+                    placeholder="ค้นหา #ไอดี / ต้นไม้ / สถานะ / โน้ต"
+                    className="w-full border rounded-lg px-3 py-2 bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-600 mb-1">ประเภท</label>
+                  <select
+                    value={typeFilter}
+                    onChange={(e) => setTypeFilter(e.target.value)}
+                    className="w-full border rounded-lg px-3 py-2 bg-white"
+                  >
+                    <option value="">ทั้งหมด</option>
+                    <option value="รายต้น">รายต้น</option>
+                    <option value="ทั้งสวน">ทั้งสวน</option>
+                  </select>
+                </div>
               </div>
-              <input
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="ค้นหา #ไอดี / ต้นไม้ / สถานะ / โน้ต"
-                className="w-72 border rounded-lg px-3 py-2 bg-white"
-              />
-            </div>
+            </Card>
 
+            {/* ตารางรายการ */}
             {loading ? (
               <Card>กำลังโหลด…</Card>
             ) : err ? (
               <Card className="text-rose-600">{err}</Card>
             ) : filtered.length === 0 ? (
-              <Card className="text-slate-600 text-sm">ยังไม่มีรายการ</Card>
+              <Card>ยังไม่มีรายการปัญหา</Card>
             ) : (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {filtered.map((p) => (
-                  <Card key={p.id} className="space-y-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="font-semibold text-lg">
-                          #{p.id.slice(0, 8)} • ต้น {p.tree_id}
-                        </div>
-                        <div className="text-sm text-slate-600">
-                          สร้างเมื่อ {fmtDT(p.created_at)}{" "}
-                          {p.updated_at ? `• อัปเดตล่าสุด ${fmtDT(p.updated_at)}` : ""}
-                        </div>
-                      </div>
-                      {badge(p.status)}
-                    </div>
-
-                    <div className="text-sm">
-                      <div className="text-slate-500">รายละเอียด</div>
-                      <div className="font-medium">{p.description}</div>
-                    </div>
-
-                    <div className="text-sm">
-                      <div className="text-slate-500">โน้ตจากเจ้าของสวน</div>
-                      <div className="font-medium">{p.owner_note || "-"}</div>
-                    </div>
-
-                    {/* มอบหมาย/ตั้งสถานะระหว่างแก้ไข */}
-                    {p.status === "เปิดปัญหา" && (
-                      <div className="rounded-lg border bg-slate-50 p-3">
-                        <label className="block text-sm text-slate-600 mb-1">
-                          โน้ตถึงนายหน้า (ตัวอย่าง: แนบรูปหลังแก้ไข / ติดต่อภายใน 24 ชม.)
-                        </label>
-                        <input
-                          value={noteMap[p.id] ?? ""}
-                          onChange={(e) =>
-                            setNoteMap((m) => ({ ...m, [p.id]: e.target.value }))
-                          }
-                          className="w-full border rounded-lg px-3 py-2 bg-white"
-                          placeholder="พิมพ์โน้ต..."
-                        />
-                        <button
-                          onClick={() => setPending(p.id)}
-                          className="mt-2 px-3 py-2 rounded-lg text-white bg-amber-700 hover:bg-amber-800 text-sm"
-                        >
-                          ➡️ มอบหมาย/ตั้งสถานะ “ระหว่างแก้ไข”
-                        </button>
-                      </div>
-                    )}
-
-                    {p.status === "ระหว่างแก้ไข" && (
-                      <div className="text-xs text-slate-500">
-                        * รอนายหน้ายืนยัน “แก้ไขแล้ว”
-                      </div>
-                    )}
-                  </Card>
-                ))}
-              </div>
+              <Card>
+                <div className="overflow-x-auto rounded-lg border bg-white shadow-sm">
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className="text-left bg-slate-50 text-slate-600">
+                        <th className="py-2 px-3">#</th>
+                        <th className="py-2 px-3">ประเภท</th>
+                        <th className="py-2 px-3">ต้นทุเรียน</th>
+                        <th className="py-2 px-3">รายละเอียดจากนายหน้า</th>
+                        <th className="py-2 px-3">สถานะ</th>
+                        <th className="py-2 px-3">แนวทางแก้ (Owner)</th>
+                        <th className="py-2 px-3">อัปเดตล่าสุด</th>
+                        <th className="py-2 px-3">การกระทำ</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filtered.map((p, i) => (
+                        <tr key={p.id} className={i % 2 === 0 ? "bg-white" : "bg-slate-50/60"}>
+                          <td className="py-2 px-3">{p.id.slice(0, 8)}</td>
+                          <td className="py-2 px-3">{parseType(p.description)}</td>
+                          <td className="py-2 px-3">{p.tree_id || "-"}</td>
+                          <td className="py-2 px-3">{stripTypePrefix(p.description)}</td>
+                          <td className="py-2 px-3">{badge(p.status)}</td>
+                          <td className="py-2 px-3">
+                            <input
+                              value={noteMap[p.id] ?? p.owner_note ?? ""}
+                              onChange={(e) => setNoteMap((m) => ({ ...m, [p.id]: e.target.value }))}
+                              placeholder="พิมพ์แนวทางแก้/มอบหมายงาน"
+                              className="w-64 border rounded-lg px-2 py-1"
+                            />
+                          </td>
+                          <td className="py-2 px-3">{fmtDT(p.updated_at || p.created_at)}</td>
+                          <td className="py-2 px-3">
+                            {p.status === "เปิดปัญหา" ? (
+                              <button
+                                onClick={() => setPending(p.id)}
+                                className="px-3 py-1 rounded-lg text-white text-xs bg-amber-700 hover:bg-amber-800"
+                              >
+                                มอบหมายเป็น “ระหว่างแก้ไข”
+                              </button>
+                            ) : (
+                              <span className="text-slate-400 text-xs">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
             )}
           </div>
         </main>

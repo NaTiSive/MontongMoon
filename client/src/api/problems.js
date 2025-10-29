@@ -12,14 +12,15 @@ export function listProblems() {
   return load().sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 }
 
-export function createProblem({ broker_id, tree_id, description }) {
+export function createProblem({ broker_id, tree_id, type, note_broker }) {
   const all = load();
   const problem = {
     id: crypto.randomUUID(),
     broker_id,
-    tree_id,
-    description,
-    status: "เปิดปัญหา", // หรือ “รอดำเนินการ”
+    tree_id: tree_id || null,
+    type,
+    note_broker,                 // ✅ เก็บข้อความจาก broker
+    status: "เปิดปัญหา",
     created_at: new Date().toISOString(),
     updated_at: null,
     owner_note: "",

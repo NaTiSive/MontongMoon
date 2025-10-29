@@ -1,130 +1,274 @@
 // src/pages/broker/BrokerReportProblem.jsx
-import { useEffect, useMemo, useState } from "react";
-import HeaderWrapper from "../../components/HeaderWrapper";
+import React, { useEffect, useMemo, useState } from "react";
 import Sidebar from "../../components/Sidebar";
+import HeaderWrapper from "../../components/HeaderWrapper";
 import Card from "../../components/Card";
 import InputField from "../../components/InputField";
 import TextArea from "../../components/TextArea";
 import SelectField from "../../components/SelectField";
 import PrimaryButton from "../../components/PrimaryButton";
-import DataTable from "../../components/datatable";
-import { seedTreesIfEmpty, listTrees } from "../../api/trees";
-import { createProblem, listProblems } from "../../api/problems"; // 👈 ใช้ listProblems แทน
 import { useAuth } from "../../contexts/AuthContext";
+import { useNavigate } from "react-router-dom";
+
+import { seedTreesIfEmpty, listTrees } from "../../api/trees";               // ต้นทุเรียน (โหมดรายต้น)
+import { createProblem, listProblems, brokerConfirmFixed } from "../../api/problems"; // API ปัญหา (UC3+UC5)
+
+// อ้างถึงโครง API ที่มีอยู่: createProblem, listProblems, brokerConfirmFixed
+// - createProblem({ broker_id, tree_id, description }) สร้างปัญหาใหม่ (status เริ่ม "เปิดปัญหา")
+// - listProblems() คืนรายการทั้งหมด (เราจะกรองด้วย broker_id ฝั่งหน้า)
+// - brokerConfirmFixed(id) อัปเดตสถานะเป็น "แก้ไขแล้ว"
+// ดูฟังก์ชันได้ใน src/api/problems.js
+// (สอดคล้องกับที่คุณอัปโหลด) :contentReference[oaicite:3]{index=3}
 
 export default function BrokerReportProblem() {
   const { user } = useAuth();
-  const [trees, setTrees] = useState([]);
-  const [q, setQ] = useState("");
-  const [type, setType] = useState("");
-  const [note, setNote] = useState("");
-  const [rows, setRows] = useState([]);
+  const navigate = useNavigate();
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   useEffect(() => {
-    seedTreesIfEmpty();
-    async function load() {
-      const t = await listTrees();
-      setTrees(t);
+    if (!user || user.role !== "broker") navigate("/login");
+  }, [user, navigate]);
 
-      // 👇 โหลดทั้งหมด แล้วกรองตาม broker_id ที่หน้า
-      const all = await listProblems();
-      const mine = (all || []).filter(p => p.broker_id === user?.broker_id);
+  // ----- ฟอร์มรายงานใหม่ -----
+  const [mode, setMode] = useState("รายต้น"); // "รายต้น" | "ทั้งสวน"
+  const [treeId, setTreeId] = useState("");
+  const [note, setNote] = useState("");
+  const [trees, setTrees] = useState([]);
+
+  // ----- รายการปัญหาของฉัน -----
+  const [rows, setRows] = useState([]);
+  const [q, setQ] = useState("");       // ค้นหา
+  const [typeFilter, setTypeFilter] = useState(""); // ฟิลเตอร์ประเภท
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      // เตรียมลิสต์ต้น (กรณีรายต้น)
+      seedTreesIfEmpty();                                      // seed ถ้ายังไม่มีข้อมูล :contentReference[oaicite:4]{index=4}
+      const t = listTrees();                                   // [{ id, name, status }, ...]
+      if (!alive) return;
+      setTrees(t || []);
+
+      // โหลดรายการปัญหาทั้งหมด แล้วกรองเฉพาะของ broker คนนี้
+      const all = listProblems();                              // เรียงล่าสุดก่อน :contentReference[oaicite:5]{index=5}
+      const mine = (all || []).filter((p) => p.broker_id === user?.broker_id);
       setRows(mine);
-    }
-    if (user?.broker_id) load();
+    })();
+    return () => {
+      alive = false;
+    };
   }, [user?.broker_id]);
 
-  const typeOptions = ["รายต้น", "ทั้งสวน"];
+  // แสดงชื่อชนิด (รายต้น/ทั้งสวน) จาก description ที่ prefix ไว้
+  const parseType = (desc = "") => {
+    if (desc.startsWith("[รายต้น]")) return "รายต้น";
+    if (desc.startsWith("[ทั้งสวน]")) return "ทั้งสวน";
+    return "-";
+  };
 
   const filtered = useMemo(() => {
+    const k = q.trim().toLowerCase();
     return rows.filter((r) => {
-      const text = (r.note_broker || "").toLowerCase();
-      const hitQ = q ? text.includes(q.toLowerCase()) : true;
-      const hitType = type ? r.type === type : true;
+      const text = `${r.description || ""} ${r.owner_note || ""} ${r.status || ""}`.toLowerCase();
+      const hitQ = k ? text.includes(k) : true;
+      const hitType = typeFilter ? parseType(r.description) === typeFilter : true;
       return hitQ && hitType;
     });
-  }, [rows, q, type]);
+  }, [rows, q, typeFilter]);
 
-  async function submit() {
-    if (!type || !note) return;
+  const fmtDT = (iso) =>
+    iso ? new Date(iso).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" }) : "-";
 
-    // ตัวอย่างเรียบง่าย: ถ้าเป็น "รายต้น" จะผูกกับต้นแรกในลิสต์ (เหมือนเดิม)
-    const treeId = type === "รายต้น" ? trees[0]?.tree_id : null;
+  // ----- ส่งรายงานใหม่ (UC3) -----
+  const submit = async () => {
+    if (!note.trim()) return alert("กรุณากรอกรายละเอียดปัญหา");
+    if (mode === "รายต้น" && !treeId) return alert("กรุณาเลือกต้นทุเรียน");
+
+    // เก็บประเภทเข้าไปใน description ตาม API เดิม
+    const description = `[${mode}] ${note.trim()}`;
 
     await createProblem({
       broker_id: user?.broker_id,
-      tree_id: treeId,
-      type,
-      note_broker: note,
+      tree_id: mode === "รายต้น" ? (treeId || null) : null,
+      description,                                                // API เดิมรับ description :contentReference[oaicite:6]{index=6}
     });
 
-    // รีโหลดแบบเดิม: list ทั้งหมดแล้วกรอง
-    const all = await listProblems();
-    const mine = (all || []).filter(p => p.broker_id === user?.broker_id);
+    // reload my list
+    const all = listProblems();
+    const mine = (all || []).filter((p) => p.broker_id === user?.broker_id);
     setRows(mine);
 
-    setType("");
+    // reset form
     setNote("");
-  }
+    if (mode === "รายต้น") setTreeId("");
+  };
+
+  // ----- ยืนยันแก้ไขแล้ว (UC5) -----
+  const confirmFixed = async (id) => {
+    await brokerConfirmFixed(id);                                // เปลี่ยนเป็น "แก้ไขแล้ว" :contentReference[oaicite:7]{index=7}
+    const all = listProblems();
+    const mine = (all || []).filter((p) => p.broker_id === user?.broker_id);
+    setRows(mine);
+  };
+
+  // ตัวช่วยเรนเดอร์ badge สถานะ
+  const badge = (status) => {
+    const cls =
+      status === "เปิดปัญหา"
+        ? "bg-rose-100 text-rose-700"
+        : status === "ระหว่างแก้ไข"
+        ? "bg-amber-100 text-amber-700"
+        : "bg-emerald-100 text-emerald-700";
+    return <span className={`px-3 py-1 rounded-lg text-xs font-medium ${cls}`}>{status}</span>;
+  };
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <HeaderWrapper title="รายงานปัญหา" subtitle="สร้างรายการปัญหาและติดตามสถานะ" />
-      <div className="flex">
-        <Sidebar />
-        <main className="flex-1 pt-28 px-4 md:px-6">
-          <Card className="mb-4">
-            <div className="grid md:grid-cols-3 gap-4">
-              <SelectField
-                label="ประเภทปัญหา"
-                placeholder="เลือกประเภท"
-                options={typeOptions}
-                value={type}
-                onChange={(e) => setType(e.target.value)}
-              />
-              <div className="md:col-span-2">
-                <TextArea
-                  label="รายละเอียด"
-                  placeholder="อธิบายปัญหา"
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  rows={3}
+    <div className={`min-h-screen w-full bg-slate-50 text-slate-900 flex flex-col md:flex-row ${
+      isSidebarOpen ? "overflow-hidden md:overflow-auto" : ""
+    }`}>
+      <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
+      {isSidebarOpen && <div className="fixed inset-0 bg-black/40 z-40 md:hidden" onClick={() => setIsSidebarOpen(false)} />}
+
+      <div className="flex-1 min-w-0 flex flex-col">
+        <HeaderWrapper
+          onMenuClick={() => setIsSidebarOpen(true)}
+          title="รายงานปัญหา"
+          subtitle="สร้างปัญหาใหม่และติดตามสถานะ (ยืนยันแก้ไขได้ที่นี่)"
+        />
+
+        <main className="p-4 sm:p-6 pt-28">
+          <div className="max-w-5xl mx-auto space-y-4">
+
+            {/* ฟอร์มรายงานใหม่ (UC3) */}
+            <Card>
+              <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
+                <div className="md:col-span-2">
+                  <SelectField
+                    label="ลักษณะรายการ"
+                    placeholder="เลือก"
+                    options={["รายต้น", "ทั้งสวน"]}
+                    value={mode}
+                    onChange={(e) => setMode(e.target.value)}
+                  />
+                </div>
+
+                {mode === "รายต้น" && (
+                  <div className="md:col-span-2">
+                    <label className="block text-sm text-slate-600 mb-1">ต้นทุเรียน</label>
+                    <select
+                      value={treeId}
+                      onChange={(e) => setTreeId(e.target.value)}
+                      className="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                    >
+                      <option value="">— เลือกต้น —</option>
+                      {trees.map((t) => (
+                        <option key={t.id || t.tree_id} value={t.id || t.tree_id}>
+                          {(t.id || t.tree_id) + (t.name ? ` — ${t.name}` : "")}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <div className={mode === "รายต้น" ? "md:col-span-6" : "md:col-span-4"}>
+                  <TextArea
+                    label="รายละเอียดปัญหา"
+                    placeholder="อธิบายสิ่งที่พบ"
+                    rows={3}
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                  />
+                </div>
+
+                <div className="md:col-span-6 flex justify-end">
+                  <PrimaryButton
+                    title="ส่งปัญหา"
+                    onClick={submit}
+                    disabled={!note.trim() || (mode === "รายต้น" && !treeId)}
+                  />
+                </div>
+              </div>
+            </Card>
+
+            {/* ฟิลเตอร์รายการ */}
+            <Card>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                <InputField
+                  label="ค้นหา"
+                  placeholder="ค้นหาจากข้อความ/สถานะ/โน้ตเจ้าของ"
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
                 />
+                <div>
+                  <label className="block text-sm text-slate-600 mb-1">ประเภท</label>
+                  <select
+                    value={typeFilter}
+                    onChange={(e) => setTypeFilter(e.target.value)}
+                    className="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                  >
+                    <option value="">ทั้งหมด</option>
+                    <option value="รายต้น">รายต้น</option>
+                    <option value="ทั้งสวน">ทั้งสวน</option>
+                  </select>
+                </div>
               </div>
-              <div className="flex items-end">
-                <PrimaryButton title="ส่งปัญหา" onClick={submit} disabled={!type || !note} />
-              </div>
-            </div>
-          </Card>
+            </Card>
 
-          <Card>
-            <div className="grid md:grid-cols-3 gap-3 mb-4">
-              <InputField
-                label="ค้นหา"
-                placeholder="พิมพ์คำค้น"
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-              />
-              <SelectField
-                label="กรองประเภท"
-                placeholder="ทั้งหมด"
-                options={typeOptions}
-                value={type || ""}
-                onChange={(e) => setType(e.target.value)}
-              />
-            </div>
-
-            <DataTable
-              columns={[
-                { key: "created_at", header: "วันที่" },
-                { key: "type", header: "ประเภท" },
-                { key: "status", header: "สถานะ" },
-                { key: "note_broker", header: "รายละเอียด" },
-              ]}
-              data={filtered}
-              emptyText="ยังไม่มีรายการปัญหา"
-            />
-          </Card>
+            {/* ตารางรายการของฉัน + ปุ่มยืนยันแก้ไข (UC5) */}
+            <Card>
+              {filtered.length === 0 ? (
+                <div className="text-sm text-slate-600">ยังไม่มีรายการปัญหา</div>
+              ) : (
+                <div className="overflow-x-auto rounded-lg border bg-white shadow-sm">
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className="text-left bg-slate-50 text-slate-600">
+                        <th className="py-2 px-3">#</th>
+                        <th className="py-2 px-3">ประเภท</th>
+                        <th className="py-2 px-3">ต้นทุเรียน</th>
+                        <th className="py-2 px-3">รายละเอียด</th>
+                        <th className="py-2 px-3">สถานะ</th>
+                        <th className="py-2 px-3">แนวทางแก้ (Owner)</th>
+                        <th className="py-2 px-3">อัปเดตล่าสุด</th>
+                        <th className="py-2 px-3">การกระทำ</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filtered.map((r, i) => (
+                        <tr key={r.id} className={i % 2 === 0 ? "bg-white" : "bg-slate-50/60"}>
+                          <td className="py-2 px-3">{r.id.slice(0, 8)}</td>
+                          <td className="py-2 px-3">{parseType(r.description)}</td>
+                          <td className="py-2 px-3">{r.tree_id || "-"}</td>
+                          <td className="py-2 px-3">
+                            {/* ตัด prefix [รายต้น]/[ทั้งสวน] ออกจากรายละเอียดเพื่อให้อ่านง่าย */}
+                            {String(r.description || "").replace(/^\[(รายต้น|ทั้งสวน)\]\s*/u, "")}
+                          </td>
+                          <td className="py-2 px-3">{badge(r.status)}</td>
+                          <td className="py-2 px-3">{r.owner_note || "-"}</td>
+                          <td className="py-2 px-3">{fmtDT(r.updated_at || r.created_at)}</td>
+                          <td className="py-2 px-3">
+                            {r.status === "ระหว่างแก้ไข" ? (
+                              <button
+                                onClick={() => confirmFixed(r.id)}
+                                className="px-3 py-1 rounded-lg text-white text-xs bg-emerald-700 hover:bg-emerald-800"
+                              >
+                                ✅ ยืนยันแก้ไขแล้ว
+                              </button>
+                            ) : (
+                              <span className="text-slate-400 text-xs">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <p className="text-xs text-slate-400 mt-2">
+                * สถานะเริ่มต้น: “เปิดปัญหา” → เจ้าของมอบหมายเป็น “ระหว่างแก้ไข” → นายหน้ายืนยันเป็น “แก้ไขแล้ว”
+              </p>
+            </Card>
+          </div>
         </main>
       </div>
     </div>
