@@ -5,7 +5,6 @@ import Card from "../../components/Card";
 import { useAuth } from "../../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import HeaderWrapper from "../../components/HeaderWrapper";
-import { listTrees } from "../../api/trees";
 import {
   GRADES,
   listFruitsByBroker,
@@ -23,19 +22,9 @@ export default function BrokerHarvest() {
 
   const disabled = user?.approvalStatus !== "approved";
 
-  // โหลดรายการต้นทุเรียน
-  const [trees, setTrees] = useState([]);
-  useEffect(() => {
-    const all = listTrees();
-    setTrees(all);
-  }, []);
-
-  // ฟอร์ม: เพิ่ม recordMode (ภาพรวม/รายต้น) + tree_id (เมื่อรายต้น)
+  // ฟอร์ม (ภาพรวมเท่านั้น + เก็บเป็นกิโลกรัม)
   const [form, setForm] = useState({
-    recordMode: "ภาพรวม", // "ภาพรวม" | "รายต้น"
-    tree_id: "",
     weight: "",
-    count: "",
     grade: GRADES[0],
     note: "",
   });
@@ -50,9 +39,7 @@ export default function BrokerHarvest() {
     const mine = listFruitsByBroker(user.broker_id) || [];
     const mapped = mine.map((r) => ({
       id: r.id,
-      tree_id: r.tree_id ?? null,
       weight: Number(r.weight_kg || 0),
-      count: r.count || 1,
       grade: r.grade === "ตกเกรด" ? "ตกเกรด" : `เกรด ${r.grade}`,
       note: r.note || "-",
       date: r.harvest_at,
@@ -75,35 +62,24 @@ export default function BrokerHarvest() {
     if (disabled) return;
 
     const weight = parseFloat(form.weight);
-    const count = parseInt(form.count);
-
-    // ตรวจสอบตามโหมด
-    if (form.recordMode === "รายต้น" && !form.tree_id) {
-      return alert("กรุณาเลือกต้นทุเรียน (โหมดรายต้น)");
-    }
     if (!Number.isFinite(weight) || weight <= 0) {
       return alert("กรุณากรอกน้ำหนักมากกว่า 0");
     }
-    if (!Number.isFinite(count) || count <= 0) {
-      return alert("กรุณากรอกจำนวนผลมากกว่า 0");
-    }
 
-    // ถ้าเป็นภาพรวม → ส่ง tree_id เป็น null
+    // บันทึกแบบภาพรวม: ไม่ระบุต้น, ไม่เก็บจำนวนผล
     const rec = createHarvestFruitRecord({
       broker_id: user?.broker_id,
-      tree_id: form.recordMode === "รายต้น" ? form.tree_id : null,
+      tree_id: null,
       grade: form.grade,
       weight_kg: weight,
-      count: count,
+      count: null, // ❌ ไม่ใช้งาน
       note: form.note,
     });
 
     setHarvests((prev) => [
       {
         id: rec.id,
-        tree_id: rec.tree_id ?? null,
         weight: Number(rec.weight_kg || 0),
-        count: rec.count || 1,
         grade: rec.grade === "ตกเกรด" ? "ตกเกรด" : `เกรด ${rec.grade}`,
         note: rec.note || "-",
         date: rec.harvest_at,
@@ -112,10 +88,7 @@ export default function BrokerHarvest() {
     ]);
 
     setForm({
-      recordMode: form.recordMode, // คงโหมดที่ผู้ใช้เลือกไว้
-      tree_id: "",
       weight: "",
-      count: "",
       grade: GRADES[0],
       note: "",
     });
@@ -140,7 +113,7 @@ export default function BrokerHarvest() {
         <HeaderWrapper
           onMenuClick={() => setIsSidebarOpen(true)}
           title="บันทึกผลผลิต"
-          subtitle="กรอกผลการเก็บเกี่ยวตามความจริง"
+          subtitle="กรอกผลการเก็บเกี่ยวแบบภาพรวม (หน่วยกิโลกรัม)"
         />
         <main className="p-4 sm:p-6 pt-28">
           <div className="max-w-3xl mx-auto space-y-4">
@@ -149,53 +122,7 @@ export default function BrokerHarvest() {
                 onSubmit={submit}
                 className="grid grid-cols-1 md:grid-cols-2 gap-4"
               >
-                {/* ลักษณะการบันทึก */}
-                <div>
-                  <label className="block text-sm text-slate-600 mb-1">
-                    ลักษณะการบันทึก
-                  </label>
-                  <select
-                    value={form.recordMode}
-                    onChange={(e) =>
-                      setForm((p) => ({
-                        ...p,
-                        recordMode: e.target.value,
-                        // ถ้าสลับเป็นภาพรวม ให้ล้าง tree_id
-                        tree_id:
-                          e.target.value === "ภาพรวม" ? "" : p.tree_id,
-                      }))
-                    }
-                    disabled={disabled}
-                    className="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
-                  >
-                    <option value="ภาพรวม">ภาพรวม (ไม่ระบุต้น)</option>
-                    <option value="รายต้น">รายต้น (ต้องเลือกต้นทุเรียน)</option>
-                  </select>
-                </div>
-
-                {/* เลือกต้นทุเรียน (เฉพาะโหมดรายต้น) */}
-                {form.recordMode === "รายต้น" && (
-                  <div>
-                    <label className="block text-sm text-slate-600 mb-1">
-                      ต้นทุเรียน
-                    </label>
-                    <select
-                      value={form.tree_id}
-                      onChange={handleChange("tree_id")}
-                      disabled={disabled}
-                      className="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
-                    >
-                      <option value="">-- เลือกต้นทุเรียน --</option>
-                      {trees.map((t) => (
-                        <option key={t.tree_id} value={t.tree_id}>
-                          ต้นที่ {t.tree_id} ({t.status})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-                {/* น้ำหนักรวม */}
+                {/* น้ำหนักรวม (กิโลกรัม) */}
                 <div>
                   <label className="block text-sm text-slate-600 mb-1">
                     น้ำหนักรวม (กิโลกรัม)
@@ -207,23 +134,6 @@ export default function BrokerHarvest() {
                     value={form.weight}
                     onChange={handleChange("weight")}
                     placeholder="เช่น 850"
-                    className="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
-                    disabled={disabled}
-                  />
-                </div>
-
-                {/* จำนวนผล */}
-                <div>
-                  <label className="block text-sm text-slate-600 mb-1">
-                    จำนวนผล
-                  </label>
-                  <input
-                    type="number"
-                    step="1"
-                    min="1"
-                    value={form.count}
-                    onChange={handleChange("count")}
-                    placeholder="เช่น 12"
                     className="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
                     disabled={disabled}
                   />
@@ -294,9 +204,7 @@ export default function BrokerHarvest() {
                   <thead>
                     <tr className="text-left bg-slate-50 text-slate-600">
                       <th className="py-2 px-3">วันที่</th>
-                      <th className="py-2 px-3">ต้นทุเรียน</th>
-                      <th className="py-2 px-3">น้ำหนัก</th>
-                      <th className="py-2 px-3">จำนวนผล</th>
+                      <th className="py-2 px-3">น้ำหนัก (กก.)</th>
                       <th className="py-2 px-3">คุณภาพ</th>
                       <th className="py-2 px-3">หมายเหตุ</th>
                     </tr>
@@ -309,19 +217,15 @@ export default function BrokerHarvest() {
                       >
                         <td className="py-2 px-3">{fmtDate(h.date)}</td>
                         <td className="py-2 px-3">
-                          {h.tree_id ? `ต้นที่ ${h.tree_id}` : "ภาพรวม"}
-                        </td>
-                        <td className="py-2 px-3">
                           {h.weight.toLocaleString("th-TH")} กก.
                         </td>
-                        <td className="py-2 px-3">{h.count}</td>
                         <td className="py-2 px-3">{h.grade}</td>
                         <td className="py-2 px-3">{h.note}</td>
                       </tr>
                     ))}
                     {harvests.length === 0 && (
                       <tr>
-                        <td className="py-4 px-3 text-slate-500" colSpan={6}>
+                        <td className="py-4 px-3 text-slate-500" colSpan={4}>
                           ยังไม่มีการบันทึกผลผลิต
                         </td>
                       </tr>

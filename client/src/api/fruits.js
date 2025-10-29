@@ -47,24 +47,33 @@ export function createHarvestFruitRecord({
   tree_id,
   grade,
   weight_kg,
-  count,
+  count,       // ✅ optional แล้ว
   note = "",
   harvest_at,
 }) {
   if (!GRADES.includes(grade)) throw new Error("เกรดไม่ถูกต้อง");
+
   const w = Number(weight_kg);
-  const c = Number(count);
-  if (!Number.isFinite(w) || w <= 0) throw new Error("น้ำหนัก (กก.) ต้องเป็นตัวเลขบวก");
-  if (!Number.isFinite(c) || c <= 0) throw new Error("จำนวนผล ต้องเป็นตัวเลขบวก");
+  if (!Number.isFinite(w) || w <= 0)
+    throw new Error("น้ำหนัก (กก.) ต้องเป็นตัวเลขบวก");
+
+  // ✅ อนุญาตให้ไม่ส่ง count ได้: ถ้าไม่ส่ง/ว่าง -> เก็บเป็น null และไม่เช็ก
+  const c =
+    count === undefined || count === null || String(count).trim() === ""
+      ? null
+      : Number(count);
+
+  if (c !== null && (!Number.isFinite(c) || c <= 0))
+    throw new Error("จำนวนผล ต้องเป็นตัวเลขบวก");
 
   const rows = load();
   const rec = {
     id: crypto.randomUUID(),
     broker_id,
-    tree_id,
+    tree_id,          // อาจเป็น null เมื่อบันทึกแบบภาพรวม
     grade,
     weight_kg: w,
-    count: c,
+    count: c,         // ✅ อาจเป็น null ได้
     note: String(note || ""),
     harvest_at: harvest_at || new Date().toISOString(),
   };
