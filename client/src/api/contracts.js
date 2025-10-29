@@ -69,28 +69,48 @@ export async function createContract({
   broker_id,
   owner_id = 1,
   qtt_estimate,
-  offerprice,
+  offerprice_by_grade,   // ต้องมีเสมอ
   payment_term,
   note,
 }) {
+  const qty = Number(qtt_estimate);
+  if (!Number.isFinite(qty) || qty <= 0) {
+    throw new Error("ปริมาณต้องเป็นตัวเลขบวก");
+  }
+
+  // ✅ บังคับให้กรอกราคาตามเกรด
+  if (!offerprice_by_grade || typeof offerprice_by_grade !== "object") {
+    throw new Error("ต้องระบุราคาตามเกรด (A,B,C)");
+  }
+  const A = Number(offerprice_by_grade.A);
+  const B = Number(offerprice_by_grade.B);
+  const C = Number(offerprice_by_grade.C);
+  if (![A, B, C].every((n) => Number.isFinite(n) && n > 0)) {
+    throw new Error("ราคาตามเกรด A,B,C ต้องเป็นตัวเลขบวกทั้งหมด");
+  }
+
   const now = new Date().toISOString();
   const all = load(CONTRACTS_KEY, []) || [];
   const row = {
     contract_id: uuid(),
     broker_id,
     owner_id,
-    status: "รอการพิจารณา", // สำคัญ: ให้ Owner เห็นในหน้า offers
+    status: "รอการพิจารณา",
     contract_date: now,
-    contract_deadline: null, // ไว้ผูกกับรอบถ้ามี
-    qtt_estimate: Number(qtt_estimate),
-    offerprice: Number(offerprice),
+    contract_deadline: null,
+    qtt_estimate: qty,
+    offerprice_by_grade: { A, B, C },
+    offerprice: A, // ยังคงเก็บไว้เพื่อ backward compatibility
     payment_term: String(payment_term || ""),
     note: String(note || ""),
   };
+
   all.push(row);
   save(CONTRACTS_KEY, all);
   return row;
 }
+
+
 
 export async function listAllContracts() {
   const all = load(CONTRACTS_KEY, []) || [];
