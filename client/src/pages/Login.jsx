@@ -1,12 +1,11 @@
 // src/pages/Login.jsx
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import InputField from "../components/InputField";
 import PageHeader from "../components/PageHeader";
-import { useNavigate } from "react-router-dom";
 import PrimaryButton from "../components/PrimaryButton";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-// ❌ ลบ import ที่ไม่มีจริงออก
-// import { getBrokerApproval } from "../api/contracts";
+import { getBrokerApproval } from "../api/contracts";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -15,15 +14,11 @@ export default function Login() {
   const navigate = useNavigate();
   const { login, user } = useAuth();
 
-  // Redirect ถ้า login อยู่แล้ว
-  useEffect(() => {
-    if (!user) return;
-    if (user.role === "owner") navigate("/owner/dashboard", { replace: true });
-    else if (user.role === "broker")
-      navigate("/broker/dashboard", { replace: true });
-  }, [user, navigate]);
+  if (user) {
+    if (user.role === "owner") navigate("/owner/dashboard");
+    else if (user.role === "broker") navigate("/broker/dashboard");
+  }
 
-  // Mock Users
   const mockUsers = [
     {
       email: "owner@durianfarm.com",
@@ -55,54 +50,50 @@ export default function Login() {
     },
   ];
 
-  // helper: อ่านสถานะล่าสุดของ broker จาก LocalStorage (ถ้ามี)
-  const getBrokerApprovalFromLS = (broker_id, fallback = "pending") => {
+  const loadBrokers = () => {
     try {
-      const arr = JSON.parse(localStorage.getItem("mm:brokers@v1") || "[]");
-      const found = arr.find((b) => b.broker_id === broker_id);
-      return found?.approvalStatus || fallback;
+      return JSON.parse(localStorage.getItem("mm:brokers@v1") || "[]");
     } catch {
-      return fallback;
+      return [];
     }
   };
 
   const handleLogin = (e) => {
     e.preventDefault();
 
-    const foundUser = mockUsers.find(
+    let foundUser = mockUsers.find(
       (u) => u.email === email && u.password === password && u.role === role
     );
+
+    // ถ้าเป็น broker และยังไม่เจอ → ลองหาใน mm:brokers@v1
+    if (!foundUser && role === "broker") {
+      const brokers = loadBrokers();
+      const b = brokers.find(
+        (x) => x.email === email.toLowerCase() && x.password === password
+      );
+      if (b) {
+        const latest = getBrokerApproval(b.broker_id) || b.approvalStatus || "pending";
+        foundUser = {
+          ...b,
+          approvalStatus: latest,
+          role: "broker",
+        };
+      }
+    }
 
     if (!foundUser) {
       alert("อีเมลหรือรหัสผ่านไม่ถูกต้อง");
       return;
     }
 
-    // ถ้าเป็น broker → อัปเดต approvalStatus จาก LocalStorage ถ้ามี
-    if (foundUser.role === "broker" && foundUser.broker_id != null) {
-      const latest = getBrokerApprovalFromLS(
-        foundUser.broker_id,
-        foundUser.approvalStatus || "pending"
-      );
-      foundUser.approvalStatus = latest;
-    }
-
     login(foundUser);
-
-    if (foundUser.role === "owner") {
-      navigate("/owner/dashboard");
-    } else {
-      navigate("/broker/dashboard");
-    }
+    navigate(foundUser.role === "owner" ? "/owner/dashboard" : "/broker/dashboard");
   };
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col justify-center items-center">
-      <img
-        src="/Logo.png"
-        alt="Durian Farm"
-        className="rounded-lg w-40 h-40 mb-4"
-      />
+      {/* ✅ โลโก้ของคุณยังอยู่เหมือนเดิม */}
+      <img src="/Logo.png" alt="Durian Farm" className="rounded-lg w-40 h-40 mb-4" />
 
       <div className="bg-white shadow-lg rounded-xl p-8 w-full max-w-md">
         <PageHeader
@@ -142,7 +133,6 @@ export default function Login() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
           />
-
           <InputField
             label="รหัสผ่าน"
             type="password"
@@ -150,15 +140,9 @@ export default function Login() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
-
-          <PrimaryButton
-            title="เข้าสู่ระบบ"
-            type="submit"
-            className="w-full mt-4"
-          />
+          <PrimaryButton title="เข้าสู่ระบบ" type="submit" className="w-full mt-4" />
         </form>
 
-        {/* ลิงก์ลงทะเบียน */}
         {role === "broker" && (
           <div className="text-center mt-4">
             <p className="text-sm text-gray-600">
