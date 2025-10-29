@@ -14,6 +14,7 @@ import BrokerHarvest from "./pages/broker/BrokerHarvest";
 import BrokerReportProblem from "./pages/broker/BrokerReportProblem";
 import BrokerTransaction from "./pages/broker/BrokerTransaction";
 import BrokerActivity from "./pages/broker/BrokerActivity";
+import BrokerExportConfirm from "./pages/broker/BrokerExportConfirm";
 
 // --- Owner pages ---
 import OwnerDashboard from "./pages/owner/OwnerDashboard";
@@ -24,6 +25,7 @@ import OwnerTransactions from "./pages/owner/OwnerTransactions";
 import OwnerProblems from "./pages/owner/OwnerProblems";
 import OwnerActivities from "./pages/owner/OwnerActivities";
 import OwnerProcessing from "./pages/owner/OwnerProcessing";
+import OwnerExportConfirm from "./pages/owner/OwnerExportConfirm";
 
 function ProtectedRoute({ role }) {
   const { user, loading } = useAuth();
@@ -69,12 +71,14 @@ export default function App() {
         <Route path="/owner/problems" element={<OwnerProblems />} />
         <Route path="/owner/activities" element={<OwnerActivities />} />
         <Route path="/owner/processing" element={<OwnerProcessing />} />
+        <Route path="/owner/export-confirm" element={<OwnerExportConfirm />} />
       </Route>
 
       {/* Broker group */}
       <Route element={<ProtectedRoute role="broker" />}>
         <Route path="/broker/dashboard" element={<BrokerDashboard />} />
         <Route path="/broker/offers" element={<BrokerSubmitOffer />} />
+        <Route path="/broker/export-confirm" element={<BrokerExportConfirm />} />
 
         <Route element={<ApprovalGuard />}>
           <Route path="/broker/harvest" element={<BrokerHarvest />} />
