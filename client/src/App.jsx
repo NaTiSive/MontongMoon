@@ -23,6 +23,7 @@ import OwnerHarvest from "./pages/owner/OwnerHarvest";
 import OwnerTransactions from "./pages/owner/OwnerTransactions";
 import OwnerProblems from "./pages/owner/OwnerProblems";
 import OwnerActivities from "./pages/owner/OwnerActivities";
+import OwnerProcessing from "./pages/owner/OwnerProcessing";
 
 function ProtectedRoute({ role }) {
   const { user, loading } = useAuth();
@@ -67,6 +68,7 @@ export default function App() {
         <Route path="/owner/transaction" element={<OwnerTransactions />} />
         <Route path="/owner/problems" element={<OwnerProblems />} />
         <Route path="/owner/activities" element={<OwnerActivities />} />
+        <Route path="/owner/processing" element={<OwnerProcessing />} />
       </Route>
 
       {/* Broker group */}

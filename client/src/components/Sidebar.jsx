@@ -1,4 +1,3 @@
-// src/components/Sidebar.jsx
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { MdDashboard, MdLogout } from "react-icons/md";
@@ -19,28 +18,30 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }) {
   let menu = [];
   if (user.role === "owner") {
     menu = [
-      { id: "dashboard", name: "แดชบอร์ด", path: "/owner/dashboard", icon: <MdDashboard size={18} /> },
-      { id: "offers", name: "ข้อเสนอ", path: "/owner/offers", icon: <IoPricetag size={18} /> },
-      { id: "treestatus", name: "สถานะต้นทุเรียน", path: "/owner/treestatus", icon: <RiTreeFill size={18} /> },
-      { id: "harvest", name: "ผลการเก็บเกี่ยว", path: "/owner/harvest", icon: <FaClipboardList size={18} /> },
-      { id: "transactions", name: "รายรับรายจ่าย", path: "/owner/transaction", icon: <AiFillDollarCircle size={18} /> },
-      { id: "problems", name: "ปัญหา", path: "/owner/problems", icon: <IoWarning size={18} /> },
-      { id: "activities", name: "กิจกรรม", path: "/owner/activities", icon: <LuListTodo size={18} /> },
+      { id: "dashboard",    name: "แดชบอร์ด",       path: "/owner/dashboard",   icon: <MdDashboard size={18} /> },
+      { id: "offers",       name: "ข้อเสนอ",         path: "/owner/offers",      icon: <IoPricetag size={18} /> },
+      { id: "treestatus",   name: "สถานะต้นทุเรียน", path: "/owner/treestatus", icon: <RiTreeFill size={18} /> },
+      { id: "harvest",      name: "ผลการเก็บเกี่ยว", path: "/owner/harvest",    icon: <FaClipboardList size={18} /> },
+      // ✅ เพิ่มเมนูแปรรูปทุเรียน
+      { id: "processing",   name: "แปรรูปทุเรียน",   path: "/owner/processing", icon: <FaClipboardList size={18} /> },
+      { id: "transactions", name: "รายรับรายจ่าย",    path: "/owner/transaction", icon: <AiFillDollarCircle size={18} /> },
+      { id: "problems",     name: "ปัญหา",            path: "/owner/problems",   icon: <IoWarning size={18} /> },
+      { id: "activities",   name: "กิจกรรม",          path: "/owner/activities", icon: <LuListTodo size={18} /> },
     ];
   } else if (user.role === "broker") {
     if (user.approvalStatus === "pending") {
       menu = [
-        { id: "dashboard", name: "แดชบอร์ด", path: "/broker/dashboard", icon: <MdDashboard size={18} /> },
-        { id: "submitoffer", name: "ยื่นข้อเสนอ", path: "/broker/offers", icon: <IoPricetag size={18} /> },
+        { id: "dashboard",   name: "แดชบอร์ด",    path: "/broker/dashboard",  icon: <MdDashboard size={18} /> },
+        { id: "submitoffer", name: "ยื่นข้อเสนอ", path: "/broker/offers",     icon: <IoPricetag size={18} /> },
       ];
     } else {
       menu = [
-        { id: "dashboard", name: "แดชบอร์ด", path: "/broker/dashboard", icon: <MdDashboard size={18} /> },
-        { id: "submitoffer", name: "ยื่นข้อเสนอ", path: "/broker/offers", icon: <IoPricetag size={18} /> },
-        { id: "harvest", name: "ผลการเก็บเกี่ยว", path: "/broker/harvest", icon: <FaClipboardList size={18} /> },
-        { id: "transactions", name: "รายรับรายจ่าย", path: "/broker/transaction", icon: <AiFillDollarCircle size={18} /> },
-        { id: "problems", name: "รายงานปัญหา", path: "/broker/problems", icon: <IoWarning size={18} /> },
-        { id: "activities", name: "กิจกรรม", path: "/broker/activity", icon: <LuListTodo size={18} /> },
+        { id: "dashboard",   name: "แดชบอร์ด",     path: "/broker/dashboard",   icon: <MdDashboard size={18} /> },
+        { id: "submitoffer", name: "ยื่นข้อเสนอ",  path: "/broker/offers",      icon: <IoPricetag size={18} /> },
+        { id: "harvest",     name: "ผลการเก็บเกี่ยว", path: "/broker/harvest", icon: <FaClipboardList size={18} /> },
+        { id: "transactions",name: "รายรับรายจ่าย",   path: "/broker/transaction", icon: <AiFillDollarCircle size={18} /> },
+        { id: "problems",    name: "รายงานปัญหา",   path: "/broker/problems",  icon: <IoWarning size={18} /> },
+        { id: "activities",  name: "กิจกรรม",       path: "/broker/activity",   icon: <LuListTodo size={18} /> },
       ];
     }
   }
