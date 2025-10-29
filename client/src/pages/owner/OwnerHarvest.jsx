@@ -3,10 +3,12 @@ import React, { useEffect, useMemo, useState } from "react";
 import Sidebar from "../../components/Sidebar";
 import HeaderWrapper from "../../components/HeaderWrapper";
 import Card from "../../components/Card";
+import PageHeader from "../../components/PageHeader";
 import { useAuth } from "../../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 
 import { GRADES, listFruits, listFruitsByDateRange } from "../../api/fruits";
+import { listTrees } from "../../api/trees";
 
 export default function OwnerHarvest() {
   const { user } = useAuth();
@@ -18,22 +20,27 @@ export default function OwnerHarvest() {
   }, [user, navigate]);
 
   const [rows, setRows] = useState([]);
+  const [trees, setTrees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
-  // ฟิลเตอร์วันที่
-  const todayISO = new Date().toISOString().slice(0, 10);
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
+  // ฟิลเตอร์
+  const [startDate, setStartDate] = useState(""); // yyyy-mm-dd
+  const [endDate, setEndDate] = useState("");     // yyyy-mm-dd
+  const [gradeFilter, setGradeFilter] = useState("ทั้งหมด");
+  const [q, setQ] = useState("");
 
+  // โหลดข้อมูลครั้งแรก
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
         setLoading(true);
-        const all = listFruits();
+        const all = listFruits();          // ผลผลิตทั้งหมด
+        const t = listTrees();             // ใช้ map ชื่อ/สถานะต้น
         if (!alive) return;
         setRows(all);
+        setTrees(t || []);
       } catch (e) {
         if (!alive) return;
         setErr(e?.message || "โหลดข้อมูลไม่สำเร็จ");
@@ -45,14 +52,20 @@ export default function OwnerHarvest() {
     return () => { alive = false; };
   }, []);
 
-  // กรองตามช่วงวันที่ + เกรด + ค้นหา
-  const [gradeFilter, setGradeFilter] = useState("ทั้งหมด");
-  const [q, setQ] = useState("");
+  const fmtDT = (iso) =>
+    new Date(iso).toLocaleString("th-TH", {
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
 
+  // กรองข้อมูลตามช่วงวันที่ / เกรด / ค้นหา
   const filtered = useMemo(() => {
     let list = rows;
 
-    // date range
+    // date range (ใช้ helper จาก fruits.js เพื่อให้ logic เดียวกัน)
     if (startDate || endDate) {
       const byRange = listFruitsByDateRange({
         startISO: startDate ? new Date(startDate).toISOString() : undefined,
@@ -66,36 +79,39 @@ export default function OwnerHarvest() {
     const k = q.trim().toLowerCase();
     if (!k) return list;
     return list.filter((x) =>
-      `${x.id} ${x.tree_id} ${x.grade} ${x.weight_kg} ${x.count} ${x.note} ${x.broker_id}`
+      `${x.id} ${x.tree_id ?? ""} ${x.grade} ${x.weight_kg} ${x.count} ${x.note ?? ""} ${x.broker_id ?? ""}`
         .toLowerCase()
         .includes(k)
     );
   }, [rows, startDate, endDate, gradeFilter, q]);
 
-  // สรุปยอด
+  // รวมยอดสรุปตามเกรด + รวมทั้งหมด
   const totals = useMemo(() => {
     const sumWeight = filtered.reduce((s, r) => s + Number(r.weight_kg || 0), 0);
     const sumCount = filtered.reduce((s, r) => s + Number(r.count || 0), 0);
-    const byGrade = GRADES.reduce((acc, g) => {
-      const items = filtered.filter((r) => r.grade === g);
-      acc[g] = {
-        weight_kg: items.reduce((s, r) => s + Number(r.weight_kg || 0), 0),
-        count: items.reduce((s, r) => s + Number(r.count || 0), 0),
-      };
-      return acc;
-    }, {});
+    const byGrade = GRADES.reduce(
+      (acc, g) => {
+        const items = filtered.filter((r) => r.grade === g);
+        acc[g].weight_kg = items.reduce((s, r) => s + Number(r.weight_kg || 0), 0);
+        acc[g].count = items.reduce((s, r) => s + Number(r.count || 0), 0);
+        return acc;
+      },
+      Object.fromEntries(GRADES.map((g) => [g, { weight_kg: 0, count: 0 }]))
+    );
     return { sumWeight, sumCount, byGrade };
   }, [filtered]);
 
-  const fmtDT = (iso) =>
-    new Date(iso).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" });
+  const findTreeName = (tree_id) => {
+    if (!tree_id) return "-";
+    const t = trees.find((x) => x.tree_id === tree_id || x.id === tree_id);
+    if (!t) return `ต้นที่ ${tree_id}`;
+    return t.name || `ต้นที่ ${t.tree_id || t.id}`;
+  };
 
   return (
-    <div
-      className={`min-h-screen w-full bg-slate-50 text-slate-900 flex flex-col md:flex-row ${
-        isSidebarOpen ? "overflow-hidden md:overflow-auto" : ""
-      }`}
-    >
+    <div className={`min-h-screen w-full bg-slate-50 text-slate-900 flex flex-col md:flex-row ${
+      isSidebarOpen ? "overflow-hidden md:overflow-auto" : ""
+    }`}>
       <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
       {isSidebarOpen && (
         <div className="fixed inset-0 bg-black/40 z-40 md:hidden" onClick={() => setIsSidebarOpen(false)} />
@@ -104,8 +120,8 @@ export default function OwnerHarvest() {
       <div className="flex-1 min-w-0 flex flex-col">
         <HeaderWrapper
           onMenuClick={() => setIsSidebarOpen(true)}
-          title="ผลการเก็บเกี่ยว (เจ้าของสวน)"
-          subtitle="ดูผลผลิตรวมตามเกรด น้ำหนัก จำนวนผล และช่วงเวลา"
+          title="สรุปผลผลิตทุเรียน"
+          subtitle="รวมข้อมูลผลผลิตจากผู้รับเหมาทั้งหมด"
         />
 
         <main className="p-4 sm:p-6 pt-28">
@@ -113,24 +129,22 @@ export default function OwnerHarvest() {
             {/* ฟิลเตอร์ */}
             <Card>
               <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-                <div>
-                  <label className="block text-sm text-slate-600 mb-1">ตั้งแต่วันที่</label>
+                <div className="md:col-span-2">
+                  <label className="block text-sm text-slate-600 mb-1">ช่วงวันที่ (เริ่ม)</label>
                   <input
                     type="date"
                     value={startDate}
                     onChange={(e) => setStartDate(e.target.value)}
-                    className="w-full border rounded-lg px-3 py-2 bg-white"
-                    max={todayISO}
+                    className="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
                   />
                 </div>
-                <div>
-                  <label className="block text-sm text-slate-600 mb-1">ถึงวันที่</label>
+                <div className="md:col-span-2">
+                  <label className="block text-sm text-slate-600 mb-1">ช่วงวันที่ (สิ้นสุด)</label>
                   <input
                     type="date"
                     value={endDate}
                     onChange={(e) => setEndDate(e.target.value)}
-                    className="w-full border rounded-lg px-3 py-2 bg-white"
-                    max={todayISO}
+                    className="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
                   />
                 </div>
                 <div>
@@ -138,21 +152,24 @@ export default function OwnerHarvest() {
                   <select
                     value={gradeFilter}
                     onChange={(e) => setGradeFilter(e.target.value)}
-                    className="w-full border rounded-lg px-3 py-2 bg-white"
+                    className="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
                   >
-                    <option>ทั้งหมด</option>
+                    <option value="ทั้งหมด">ทั้งหมด</option>
                     {GRADES.map((g) => (
-                      <option key={g}>{g}</option>
+                      <option key={g} value={g}>
+                        {g === "ตกเกรด" ? g : `เกรด ${g}`}
+                      </option>
                     ))}
                   </select>
                 </div>
-                <div className="md:col-span-2">
+                <div className="md:col-span-5">
                   <label className="block text-sm text-slate-600 mb-1">ค้นหา</label>
                   <input
+                    type="text"
+                    placeholder="ค้นหาด้วย broker_id / tree_id / เกรด / หมายเหตุ / ฯลฯ"
                     value={q}
                     onChange={(e) => setQ(e.target.value)}
-                    placeholder="ค้นหา เกรด/ต้นไม้/นายหน้า/หมายเหตุ"
-                    className="w-full border rounded-lg px-3 py-2 bg-white"
+                    className="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
                   />
                 </div>
               </div>
@@ -160,14 +177,17 @@ export default function OwnerHarvest() {
 
             {/* สรุปยอด */}
             <Card>
-              <h3 className="font-semibold mb-3">สรุปยอด</h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <SummaryBox label="น้ำหนักรวม (กก.)" value={totals.sumWeight.toLocaleString("th-TH")} />
-                <SummaryBox label="จำนวนผลรวม" value={totals.sumCount.toLocaleString("th-TH")} />
+              <PageHeader
+                title="สรุปรวม"
+                subtitle="น้ำหนักรวม (กก.) และจำนวนผลตามเกรด"
+              />
+              <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+                <SummaryBox label="น้ำหนักรวม" value={totals.sumWeight.toLocaleString("th-TH")} subtitle="กิโลกรัม" />
+                <SummaryBox label="จำนวนผลรวม" value={totals.sumCount.toLocaleString("th-TH")} subtitle="ผล" />
                 {GRADES.map((g) => (
                   <SummaryBox
                     key={g}
-                    label={`เกรด ${g} (กก.)`}
+                    label={g === "ตกเกรด" ? "ตกเกรด (กก.)" : `เกรด ${g} (กก.)`}
                     value={totals.byGrade[g].weight_kg.toLocaleString("th-TH")}
                     subtitle={`${totals.byGrade[g].count.toLocaleString("th-TH")} ผล`}
                   />
@@ -182,33 +202,37 @@ export default function OwnerHarvest() {
               ) : err ? (
                 <div className="text-sm text-rose-600">{err}</div>
               ) : filtered.length === 0 ? (
-                <div className="text-sm text-slate-600">ยังไม่มีรายการ</div>
+                <div className="text-sm text-slate-600">ยังไม่มีข้อมูลผลผลิต</div>
               ) : (
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto rounded-lg border bg-white shadow-sm">
                   <table className="min-w-full text-sm">
                     <thead>
-                      <tr className="text-left border-b">
-                        <th className="py-2 pr-4">เวลา</th>
-                        <th className="py-2 pr-4">นายหน้า</th>
-                        <th className="py-2 pr-4">ต้นไม้</th>
-                        <th className="py-2 pr-4">เกรด</th>
-                        <th className="py-2 pr-4">น้ำหนัก (กก.)</th>
-                        <th className="py-2 pr-4">จำนวน (ผล)</th>
-                        <th className="py-2 pr-4">หมายเหตุ</th>
-                        <th className="py-2 pr-4">#ไอดี</th>
+                      <tr className="text-left bg-slate-50 text-slate-600">
+                        <th className="py-2 px-3">เวลา</th>
+                        <th className="py-2 px-3">นายหน้า</th>
+                        <th className="py-2 px-3">ลักษณะ</th>
+                        <th className="py-2 px-3">ต้นทุเรียน</th>
+                        <th className="py-2 px-3">เกรด</th>
+                        <th className="py-2 px-3">น้ำหนัก (กก.)</th>
+                        <th className="py-2 px-3">จำนวน (ผล)</th>
+                        <th className="py-2 px-3">หมายเหตุ</th>
+                        <th className="py-2 px-3">#ไอดี</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {filtered.map((r) => (
-                        <tr key={r.id} className="border-b">
-                          <td className="py-2 pr-4">{fmtDT(r.harvest_at)}</td>
-                          <td className="py-2 pr-4">{r.broker_id ?? "-"}</td>
-                          <td className="py-2 pr-4">{r.tree_id}</td>
-                          <td className="py-2 pr-4">{r.grade}</td>
-                          <td className="py-2 pr-4">{r.weight_kg.toLocaleString("th-TH")}</td>
-                          <td className="py-2 pr-4">{r.count.toLocaleString("th-TH")}</td>
-                          <td className="py-2 pr-4">{r.note || "-"}</td>
-                          <td className="py-2 pr-4 text-slate-500">{r.id.slice(0, 8)}</td>
+                      {filtered.map((r, i) => (
+                        <tr key={r.id} className={i % 2 === 0 ? "bg-white" : "bg-slate-50/60"}>
+                          <td className="py-2 px-3">{fmtDT(r.harvest_at)}</td>
+                          <td className="py-2 px-3">{r.broker_id ?? "-"}</td>
+                          <td className="py-2 px-3">{r.tree_id ? "รายต้น" : "ภาพรวม"}</td>
+                          <td className="py-2 px-3">
+                            {r.tree_id ? `${r.tree_id} — ${findTreeName(r.tree_id)}` : "-"}
+                          </td>
+                          <td className="py-2 px-3">{r.grade === "ตกเกรด" ? r.grade : `เกรด ${r.grade}`}</td>
+                          <td className="py-2 px-3">{Number(r.weight_kg).toLocaleString("th-TH")}</td>
+                          <td className="py-2 px-3">{Number(r.count).toLocaleString("th-TH")}</td>
+                          <td className="py-2 px-3">{r.note || "-"}</td>
+                          <td className="py-2 px-3 text-slate-500">{r.id.slice(0, 8)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -228,7 +252,7 @@ export default function OwnerHarvest() {
 
 function SummaryBox({ label, value, subtitle }) {
   return (
-    <div className="rounded-xl border bg-white p-4">
+    <div className="rounded-xl border bg-white p-4 text-center">
       <div className="text-xs text-slate-500">{label}</div>
       <div className="text-2xl font-semibold">{value}</div>
       {subtitle && <div className="text-xs text-slate-500 mt-1">{subtitle}</div>}
