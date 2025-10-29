@@ -1,10 +1,18 @@
-import React, { useEffect, useMemo, useState } from "react";
+// src/pages/broker/BrokerTransaction.jsx
+import React, { useEffect, useState } from "react";
 import Sidebar from "../../components/Sidebar";
 import HeaderWrapper from "../../components/HeaderWrapper";
 import Card from "../../components/Card";
+import InputField from "../../components/InputField";
+import SelectField from "../../components/SelectField";
+import PrimaryButton from "../../components/PrimaryButton";
 import { useAuth } from "../../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
-import { listBrokerContracts } from "../../api/contracts";
+
+import {
+  createTransaction,
+  listBrokerTransactions,
+} from "../../api/accounts";
 
 export default function BrokerTransaction() {
   const { user } = useAuth();
@@ -15,132 +23,201 @@ export default function BrokerTransaction() {
     if (!user || user.role !== "broker") navigate("/login");
   }, [user, navigate]);
 
-  const disabled = user?.approvalStatus !== "approved";
-
-  const [accepted, setAccepted] = useState([]);
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      if (!user) return;
-      const mine = await listBrokerContracts(user.broker_id);
-      const acc = mine.filter((c) => c.status === "ยอมรับ");
-      if (alive) setAccepted(acc);
-    })();
-    return () => { alive = false; };
-  }, [user]);
-
-  // mock ledger
   const [rows, setRows] = useState([]);
-  const [form, setForm] = useState({ desc: "", type: "รายรับ", amount: "" });
-  const update = (k) => (e) => setForm((p) => ({ ...p, [k]: e.target.value }));
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
 
-  const total = useMemo(() => {
-    return rows.reduce((sum, r) => sum + (r.type === "รายรับ" ? r.amount : -r.amount), 0);
-  }, [rows]);
+  // ฟอร์มบันทึกรายการ
+  const [form, setForm] = useState({
+    type: "รายรับ",            // "รายรับ" | "รายจ่าย"
+    amount: "",
+    method: "เงินสด",          // "เงินสด" | "โอนเงิน" | "อื่นๆ"
+    note: "",
+    invoice_ref: "",
+  });
 
-  const add = () => {
-    if (disabled) return;
-    const amt = Number(form.amount);
-    if (!form.desc || !Number.isFinite(amt) || amt <= 0) return alert("กรอกข้อมูลให้ถูกต้อง");
-    setRows((r) => [{ id: crypto.randomUUID(), ...form, amount: amt }, ...r]);
-    setForm({ desc: "", type: "รายรับ", amount: "" });
+  useEffect(() => {
+    if (!user?.broker_id) return;
+    try {
+      setLoading(true);
+      const mine = listBrokerTransactions(user.broker_id);
+      setRows(mine || []);
+    } catch (e) {
+      setErr(e?.message || "โหลดรายการไม่สำเร็จ");
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.broker_id]);
+
+  const onChange = (k) => (e) =>
+    setForm((p) => ({ ...p, [k]: e.target.value }));
+
+  const onSubmit = (e) => {
+    e.preventDefault();
+    try {
+      const rec = createTransaction(user.broker_id, {
+        type: form.type,
+        amount: form.amount,
+        payment_method: form.method,
+        note: form.note,
+        invoice_ref: form.invoice_ref,
+      });
+      setRows((r) => [rec, ...r]);
+      setForm({
+        type: "รายรับ",
+        amount: "",
+        method: "เงินสด",
+        note: "",
+        invoice_ref: "",
+      });
+      alert("บันทึกสำเร็จ (รอการตรวจสอบ)");
+    } catch (err) {
+      alert(err?.message || "บันทึกล้มเหลว");
+    }
+  };
+
+  const fmtDT = (iso) =>
+    iso
+      ? new Date(iso).toLocaleString("th-TH", {
+          dateStyle: "medium",
+          timeStyle: "short",
+        })
+      : "-";
+
+  const chip = (status) => {
+    const cls =
+      status === "อนุมัติ"
+        ? "bg-emerald-100 text-emerald-700"
+        : status === "ปฏิเสธ"
+        ? "bg-rose-100 text-rose-700"
+        : "bg-amber-100 text-amber-700";
+    return (
+      <span className={`px-2 py-0.5 rounded-lg text-xs font-medium ${cls}`}>
+        {status}
+      </span>
+    );
   };
 
   return (
-    <div className={`min-h-screen w-full bg-slate-50 text-slate-900 flex flex-col md:flex-row ${
-      isSidebarOpen ? "overflow-hidden md:overflow-auto" : ""
-    }`}>
+    <div
+      className={`min-h-screen w-full bg-slate-50 text-slate-900 flex flex-col md:flex-row ${
+        isSidebarOpen ? "overflow-hidden md:overflow-auto" : ""
+      }`}
+    >
       <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
       {isSidebarOpen && (
-        <div className="fixed inset-0 bg-black/40 z-40 md:hidden" onClick={() => setIsSidebarOpen(false)} />
+        <div
+          className="fixed inset-0 bg-black/40 z-40 md:hidden"
+          onClick={() => setIsSidebarOpen(false)}
+        />
       )}
 
       <div className="flex-1 min-w-0 flex flex-col">
         <HeaderWrapper
           onMenuClick={() => setIsSidebarOpen(true)}
-          title="ธุรกรรมนายหน้า"
-          subtitle="บันทึกรายรับรายจ่าย (เฉพาะบัญชีที่ได้รับอนุมัติ)"
+          title="ธุรกรรมของฉัน"
+          subtitle="บันทึกรายรับ/รายจ่าย และติดตามสถานะการตรวจสอบ"
         />
 
         <main className="p-4 sm:p-6 pt-28">
-          <div className="max-w-4xl mx-auto space-y-4">
-            {disabled && (
-              <Card>
-                <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
-                  บัญชีของคุณยังไม่ได้รับอนุมัติ — ฟีเจอร์นี้ถูกปิดการใช้งาน
+          <div className="max-w-5xl mx-auto space-y-4">
+            {/* ฟอร์มบันทึกธุรกรรม */}
+            <Card>
+              <form onSubmit={onSubmit} className="grid grid-cols-1 md:grid-cols-6 gap-3">
+                <div className="md:col-span-2">
+                  <SelectField
+                    label="ประเภท"
+                    value={form.type}
+                    onChange={onChange("type")}
+                    options={["รายรับ", "รายจ่าย"]}
+                  />
                 </div>
-              </Card>
-            )}
+                <div className="md:col-span-2">
+                  <InputField
+                    label="จำนวนเงิน (บาท)"
+                    type="number"
+                    value={form.amount}
+                    onChange={onChange("amount")}
+                    placeholder="เช่น 1500"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm text-slate-600 mb-1">
+                    วิธีชำระเงิน
+                  </label>
+                  <select
+                    value={form.method}
+                    onChange={onChange("method")}
+                    className="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                  >
+                    <option>เงินสด</option>
+                    <option>โอนเงิน</option>
+                    <option>อื่นๆ</option>
+                  </select>
+                </div>
 
-            <Card>
-              <h3 className="font-semibold mb-2">สัญญาที่ถูกยอมรับของฉัน</h3>
-              {accepted.length === 0 ? (
-                <div className="text-sm text-slate-600">ยังไม่มีสัญญาถูกยอมรับ</div>
-              ) : (
-                <ul className="text-sm list-disc pl-6">
-                  {accepted.map((c) => (
-                    <li key={c.contract_id}>
-                      #{c.contract_id} — {new Date(c.contract_date).toLocaleString("th-TH")} — {c.offerprice} บาท/กก.
-                    </li>
-                  ))}
-                </ul>
-              )}
+                <div className="md:col-span-3">
+                  <InputField
+                    label="เลขที่ใบเสร็จ / อ้างอิง"
+                    value={form.invoice_ref}
+                    onChange={onChange("invoice_ref")}
+                    placeholder="เช่น INV-2025-0001"
+                  />
+                </div>
+                <div className="md:col-span-3">
+                  <InputField
+                    label="หมายเหตุ"
+                    value={form.note}
+                    onChange={onChange("note")}
+                    placeholder="รายละเอียดเพิ่มเติม (ถ้ามี)"
+                  />
+                </div>
+
+                <div className="md:col-span-6 flex justify-end">
+                  <PrimaryButton title="บันทึก" type="submit" />
+                </div>
+              </form>
             </Card>
 
+            {/* ตารางรายการของฉัน */}
             <Card>
-              <h3 className="font-semibold mb-2">เพิ่มรายการ</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <input
-                  placeholder="คำอธิบาย"
-                  value={form.desc}
-                  onChange={update("desc")}
-                  disabled={disabled}
-                  className="border rounded-lg px-3 py-2 disabled:bg-slate-100"
-                />
-                <select
-                  value={form.type}
-                  onChange={update("type")}
-                  disabled={disabled}
-                  className="border rounded-lg px-3 py-2 disabled:bg-slate-100"
-                >
-                  <option>รายรับ</option>
-                  <option>รายจ่าย</option>
-                </select>
-                <input
-                  type="number"
-                  placeholder="จำนวนเงิน"
-                  value={form.amount}
-                  onChange={update("amount")}
-                  disabled={disabled}
-                  className="border rounded-lg px-3 py-2 disabled:bg-slate-100"
-                />
-              </div>
-              <button
-                onClick={add}
-                disabled={disabled}
-                className={`mt-3 px-4 py-2 rounded-lg text-white text-sm ${
-                  disabled ? "bg-slate-400 cursor-not-allowed" : "bg-emerald-700 hover:bg-emerald-800"
-                }`}
-              >
-                เพิ่มรายการ
-              </button>
-            </Card>
-
-            <Card>
-              <div className="flex items-center justify-between">
-                <h3 className="font-semibold">รายการทั้งหมด</h3>
-                <div className="text-sm">ยอดสุทธิ: <b>{total.toLocaleString("th-TH")}</b> บาท</div>
-              </div>
-              {rows.length === 0 ? (
-                <div className="text-sm text-slate-600 mt-2">ยังไม่มีรายการ</div>
+              {loading ? (
+                <div>กำลังโหลด…</div>
+              ) : err ? (
+                <div className="text-rose-600">{err}</div>
+              ) : rows.length === 0 ? (
+                <div className="text-sm text-slate-600">ยังไม่มีรายการ</div>
               ) : (
-                <div className="mt-2 space-y-2">
-                  {rows.map((r) => (
-                    <div key={r.id} className="border rounded-lg p-2 text-sm flex justify-between">
-                      <div>{r.desc} • {r.type}</div>
-                      <div>{r.amount.toLocaleString("th-TH")} บาท</div>
-                    </div>
-                  ))}
+                <div className="overflow-x-auto rounded-lg border bg-white shadow-sm">
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className="text-left bg-slate-50 text-slate-600">
+                        <th className="py-2 px-3">#</th>
+                        <th className="py-2 px-3">ประเภท</th>
+                        <th className="py-2 px-3">จำนวนเงิน</th>
+                        <th className="py-2 px-3">วิธีชำระเงิน</th>
+                        <th className="py-2 px-3">อ้างอิง</th>
+                        <th className="py-2 px-3">สถานะ</th>
+                        <th className="py-2 px-3">อัปเดตล่าสุด</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map((r, i) => (
+                        <tr
+                          key={r.id}
+                          className={i % 2 === 0 ? "bg-white" : "bg-slate-50/60"}
+                        >
+                          <td className="py-2 px-3">{r.id.slice(0, 8)}</td>
+                          <td className="py-2 px-3">{r.type}</td>
+                          <td className="py-2 px-3">{Number(r.amount).toLocaleString()}</td>
+                          <td className="py-2 px-3">{r.payment_method}</td>
+                          <td className="py-2 px-3">{r.invoice_ref || "-"}</td>
+                          <td className="py-2 px-3">{chip(r.status)}</td>
+                          <td className="py-2 px-3">{fmtDT(r.updated_at || r.created_at)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </Card>
