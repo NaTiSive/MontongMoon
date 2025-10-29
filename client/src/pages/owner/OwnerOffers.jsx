@@ -1,122 +1,113 @@
-// src/pages/owner/OwnerOffers.jsx
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import Sidebar from "../../components/Sidebar";
-import { useAuth } from "../../contexts/AuthContext";
-import Card from "../../components/Card";
-import PageHeader from "../../components/PageHeader";
-import DataTable from "../../components/datatable";
-import PrimaryButton from "../../components/PrimaryButton";
-import SecondaryButton from "../../components/SecondaryButton";
 import HeaderWrapper from "../../components/HeaderWrapper";
+import Card from "../../components/Card";
+import { useAuth } from "../../contexts/AuthContext";
+import { useNavigate } from "react-router-dom";
 import { listAllContracts, approveContract, rejectContract } from "../../api/contracts";
 
 export default function OwnerOffers() {
   const { user } = useAuth();
-  const [offers, setOffers] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [actionId, setActionId] = useState(null);
-  const ownerId = 1; // Owner หลักของระบบ
-
-  // โหลดรายการข้อเสนอ
-  async function reload() {
-    setLoading(true);
-    try {
-      const all = await listAllContracts();
-      const filtered = all.filter(
-        (o) => o.owner_id === ownerId && o.status === "รอการพิจารณา"
-      );
-      setOffers(filtered);
-    } catch (err) {
-      console.error("Error loading contracts:", err);
-    } finally {
-      setLoading(false);
-    }
-  }
+  const navigate = useNavigate();
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [rows, setRows] = useState([]);
 
   useEffect(() => {
-    reload();
+    if (!user || user.role !== "owner") navigate("/login");
+  }, [user, navigate]);
+
+  useEffect(() => {
+    (async () => {
+      const all = await listAllContracts();
+      setRows(all);
+    })();
   }, []);
 
-  // โครง columns ของตาราง
-  const columns = useMemo(
-    () => [
-      { key: "contract_id", header: "สัญญา" },
-      { key: "broker_name", header: "ผู้รับเหมา" },
-      { key: "quantity", header: "ปริมาณ (กก.)" },
-      { key: "offer_price", header: "ราคาเสนอ (฿/กก.)" },
-      { key: "payment_term", header: "วิธีจ่าย" },
-      { key: "submitted_at", header: "วันที่ยื่น" },
-    ],
-    []
-  );
-
-  // กด “อนุมัติ”
-  async function handleApprove(id) {
-    try {
-      setActionId(id);
-      await approveContract(id);
-      await reload();
-    } catch (err) {
-      console.error("Approve error:", err);
-    } finally {
-      setActionId(null);
-    }
-  }
-
-  // กด “ปฏิเสธ”
-  async function handleReject(id) {
-    try {
-      setActionId(id);
-      await rejectContract(id);
-      await reload();
-    } catch (err) {
-      console.error("Reject error:", err);
-    } finally {
-      setActionId(null);
-    }
-  }
+  const reload = async () => {
+    const all = await listAllContracts();
+    setRows(all);
+  };
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <HeaderWrapper
-        title="ข้อเสนอจากผู้รับเหมา"
-        subtitle="อนุมัติหรือปฏิเสธข้อเสนอที่รอการพิจารณา"
-      />
-      <div className="flex">
-        <Sidebar />
-        <main className="flex-1 pt-28 px-4 md:px-6">
-          <Card>
-            <PageHeader
-              title="รายการข้อเสนอ (รอการพิจารณา)"
-              subtitle={`พบ ${offers.length} รายการ`}
-            />
+    <div className={`min-h-screen w-full bg-slate-50 flex flex-col md:flex-row ${isSidebarOpen ? "overflow-hidden md:overflow-auto" : ""}`}>
+      <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
+      {isSidebarOpen && <div className="fixed inset-0 bg-black/40 z-40 md:hidden" onClick={() => setIsSidebarOpen(false)} />}
+      <div className="flex-1 flex flex-col">
+        <HeaderWrapper
+          onMenuClick={() => setIsSidebarOpen(true)}
+          title="ข้อเสนอจากนายหน้า"
+          subtitle="ตรวจสอบและเลือกข้อเสนอที่ต้องการ"
+        />
 
-            {loading ? (
-              <div className="py-12 text-center text-gray-500">
-                กำลังโหลดข้อมูล...
-              </div>
+        <main className="p-4 sm:p-6 pt-28">
+          <div className="max-w-5xl mx-auto space-y-4">
+            {rows.length === 0 ? (
+              <Card>ยังไม่มีข้อเสนอ</Card>
             ) : (
-              <DataTable
-                columns={columns}
-                data={offers}
-                emptyText="ยังไม่มีข้อเสนอที่รอการพิจารณา"
-                renderRowActions={(row) => (
-                  <div className="flex justify-end gap-2">
-                    <SecondaryButton
-                      title="ปฏิเสธ"
-                      onClick={() => handleReject(row.contract_id)}
-                      disabled={actionId === row.contract_id}
-                    />
-                    <PrimaryButton
-                      title="อนุมัติ"
-                      onClick={() => handleApprove(row.contract_id)}
-                      disabled={actionId === row.contract_id}
-                    />
+              rows.map((row) => (
+                <Card key={row.contract_id} className="space-y-1">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <div className="font-semibold">
+                        #{row.contract_id.slice(0, 8)} • Broker {row.broker_id}
+                      </div>
+                      <div className="text-xs text-slate-500">
+                        ส่งเมื่อ {new Date(row.contract_date).toLocaleString("th-TH")}
+                      </div>
+                    </div>
+                    <span
+                      className={`px-3 py-1 rounded-lg text-xs font-medium ${
+                        row.status === "ยอมรับ"
+                          ? "bg-emerald-100 text-emerald-700"
+                          : row.status === "ปฏิเสธ"
+                          ? "bg-rose-100 text-rose-700"
+                          : "bg-amber-100 text-amber-700"
+                      }`}
+                    >
+                      {row.status}
+                    </span>
                   </div>
-                )}
-              />
+
+                  {/* แสดงราคาตามเกรด */}
+                  {row.offerprice_by_grade && (
+                    <div className="text-xs text-slate-600 mt-1">
+                      A={row.offerprice_by_grade.A} / B={row.offerprice_by_grade.B} / C={row.offerprice_by_grade.C} บาท/กก.
+                    </div>
+                  )}
+
+                  {/* ปุ่มจัดการ */}
+                  <div className="flex gap-2 mt-2">
+                    <button
+                      onClick={async () => {
+                        await approveContract(row.contract_id);
+                        await reload();
+                        alert("อนุมัติข้อเสนอแล้ว (เลือกได้ครั้งละ 1 รายการ)");
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-700 text-white text-xs hover:bg-emerald-800"
+                    >
+                      อนุมัติ
+                    </button>
+                    <button
+                      onClick={async () => {
+                        await rejectContract(row.contract_id);
+                        await reload();
+                        alert("ปฏิเสธข้อเสนอแล้ว");
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-rose-700 text-white text-xs hover:bg-rose-800"
+                    >
+                      ปฏิเสธ
+                    </button>
+                  </div>
+
+                  {row.note && (
+                    <div className="text-xs text-slate-500 mt-1">
+                      หมายเหตุ: {row.note}
+                    </div>
+                  )}
+                </Card>
+              ))
             )}
-          </Card>
+          </div>
         </main>
       </div>
     </div>
