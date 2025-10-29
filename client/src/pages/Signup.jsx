@@ -1,4 +1,3 @@
-// src/pages/Signup.jsx
 import React, { useState } from "react";
 import InputField from "../components/InputField";
 import PageHeader from "../components/PageHeader";
@@ -37,14 +36,23 @@ export default function Signup() {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!form.name.trim()) return alert("กรุณากรอกชื่อ");
-    if (!form.phone.trim()) return alert("กรุณากรอกเบอร์โทรศัพท์");
-    if (!form.email.trim()) return alert("กรุณากรอกอีเมล");
-    if (!form.password) return alert("กรุณากรอกรหัสผ่าน");
-    if (form.password !== form.confirm) return alert("รหัสผ่านไม่ตรงกัน");
+
+    const name = form.name.trim();
+    const phone = form.phone.trim();
+    const email = form.email.trim().toLowerCase();
+    const address = form.address.trim();
+    const password = form.password;
+    const confirm = form.confirm;
+
+    if (!name) return alert("กรุณากรอกชื่อ");
+    if (!phone) return alert("กรุณากรอกเบอร์โทรศัพท์");
+    if (!email) return alert("กรุณากรอกอีเมล");
+    if (!password) return alert("กรุณากรอกรหัสผ่าน");
+    if (password.length < 6) return alert("รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร");
+    if (password !== confirm) return alert("รหัสผ่านไม่ตรงกัน");
 
     const brokers = loadBrokers();
-    if (brokers.some((b) => b.email === form.email.toLowerCase())) {
+    if (brokers.some((b) => (b.email || "").toLowerCase() === email)) {
       return alert("อีเมลนี้ถูกใช้งานแล้ว");
     }
 
@@ -53,11 +61,11 @@ export default function Signup() {
 
     const newBroker = {
       broker_id: nextId,
-      name: form.name.trim(),
-      phone: form.phone.trim(),
-      email: form.email.toLowerCase(),
-      password: form.password,
-      address: form.address.trim(),
+      name,
+      phone,
+      email,
+      password,
+      address,
       role: "broker",
       approvalStatus: "pending",
       created_at: new Date().toISOString(),
@@ -72,7 +80,6 @@ export default function Signup() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col justify-center items-center">
-      {/* ✅ คงโลโก้ของคุณไว้ */}
       <img src="/Logo.png" alt="Durian Farm" className="rounded-lg w-40 h-40 mb-4" />
 
       <div className="bg-white shadow-lg rounded-xl p-8 w-full max-w-md">
@@ -86,8 +93,28 @@ export default function Signup() {
           <InputField label="เบอร์โทรศัพท์" name="phone" value={form.phone} onChange={handleChange} />
           <InputField label="อีเมล" type="email" name="email" value={form.email} onChange={handleChange} />
           <InputField label="ที่อยู่" name="address" value={form.address} onChange={handleChange} />
-          <InputField label="รหัสผ่าน" type="password" name="password" value={form.password} onChange={handleChange} />
-          <InputField label="ยืนยันรหัสผ่าน" type="password" name="confirm" value={form.confirm} onChange={handleChange} />
+
+          {/* ✅ ช่องรหัสผ่านพร้อม helper text */}
+          <div className="mb-4">
+            <InputField
+              label="รหัสผ่าน"
+              type="password"
+              name="password"
+              value={form.password}
+              onChange={handleChange}
+            />
+            <p className="text-xs text-gray-500 mt-1 ml-1">
+              * ต้องมีอย่างน้อย 6 ตัวอักษร
+            </p>
+          </div>
+
+          <InputField
+            label="ยืนยันรหัสผ่าน"
+            type="password"
+            name="confirm"
+            value={form.confirm}
+            onChange={handleChange}
+          />
 
           <PrimaryButton title="ลงทะเบียน" type="submit" className="w-full mt-3" />
         </form>

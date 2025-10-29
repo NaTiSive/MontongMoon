@@ -1,11 +1,10 @@
-// src/pages/Profile.jsx
 import React, { useState, useEffect } from "react";
 import InputField from "../components/InputField";
 import PrimaryButton from "../components/PrimaryButton";
 import PageHeader from "../components/PageHeader";
 import { useAuth } from "../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
-import { FiArrowLeft } from "react-icons/fi"; // ✅ เพิ่มไอคอนลูกศรย้อนกลับ
+import { FiArrowLeft } from "react-icons/fi";
 
 export default function Profile() {
   const { user, updateUser } = useAuth();
@@ -36,6 +35,13 @@ export default function Profile() {
 
   const handleSubmit = (e) => {
     e.preventDefault();
+
+    // ✅ ถ้ามีการกรอกรหัสผ่านใหม่ ให้ตรวจสอบความยาวก่อน
+    if (form.password && form.password.length < 6) {
+      alert("รหัสผ่านใหม่ต้องมีอย่างน้อย 6 ตัวอักษร");
+      return;
+    }
+
     updateUser(form);
     alert("บันทึกข้อมูลสำเร็จ!");
   };
@@ -88,13 +94,20 @@ export default function Profile() {
             value={form.address}
             onChange={handleChange}
           />
-          <InputField
-            label="รหัสผ่านใหม่ (ถ้ามี)"
-            name="password"
-            type="password"
-            value={form.password}
-            onChange={handleChange}
-          />
+
+          {/* ✅ ช่องรหัสผ่านใหม่พร้อม helper text */}
+          <div className="mb-4">
+            <InputField
+              label="รหัสผ่านใหม่ (ถ้ามี)"
+              name="password"
+              type="password"
+              value={form.password}
+              onChange={handleChange}
+            />
+            <p className="text-xs text-gray-500 mt-1 ml-1">
+              * ต้องมีอย่างน้อย 6 ตัวอักษร หากต้องการเปลี่ยนรหัสผ่าน
+            </p>
+          </div>
 
           <PrimaryButton
             title="บันทึกการเปลี่ยนแปลง"
