@@ -1,5 +1,5 @@
 // src/pages/Login.jsx
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import InputField from "../components/InputField";
 import PageHeader from "../components/PageHeader";
 import { useNavigate } from "react-router-dom";
@@ -16,10 +16,12 @@ export default function Login() {
   const { login, user } = useAuth();
 
   // Redirect ถ้า login อยู่แล้ว
-  if (user) {
-    if (user.role === "owner") navigate("/owner/dashboard");
-    else if (user.role === "broker") navigate("/broker/dashboard");
-  }
+  useEffect(() => {
+    if (!user) return;
+    if (user.role === "owner") navigate("/owner/dashboard", { replace: true });
+    else if (user.role === "broker")
+      navigate("/broker/dashboard", { replace: true });
+  }, [user, navigate]);
 
   // Mock Users
   const mockUsers = [

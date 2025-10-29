@@ -1,185 +1,124 @@
 // src/pages/owner/OwnerOffers.jsx
-import React, { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Sidebar from "../../components/Sidebar";
-import HeaderWrapper from "../../components/HeaderWrapper";
-import Card from "../../components/Card";
 import { useAuth } from "../../contexts/AuthContext";
-import { useNavigate } from "react-router-dom";
-import {
-  listAllContracts,
-  approveContract,
-  rejectContract,
-} from "../../api/contracts";
+import Card from "../../components/Card";
+import PageHeader from "../../components/PageHeader";
+import DataTable from "../../components/datatable";
+import PrimaryButton from "../../components/PrimaryButton";
+import SecondaryButton from "../../components/SecondaryButton";
+import HeaderWrapper from "../../components/HeaderWrapper";
+import { listAllContracts, approveContract, rejectContract } from "../../api/contracts";
 
 export default function OwnerOffers() {
   const { user } = useAuth();
-  const navigate = useNavigate();
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-
   const [offers, setOffers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState("");
+  const [actionId, setActionId] = useState(null);
+  const ownerId = 1; // Owner หลักของระบบ
+
+  // โหลดรายการข้อเสนอ
+  async function reload() {
+    setLoading(true);
+    try {
+      const all = await listAllContracts();
+      const filtered = all.filter(
+        (o) => o.owner_id === ownerId && o.status === "รอการพิจารณา"
+      );
+      setOffers(filtered);
+    } catch (err) {
+      console.error("Error loading contracts:", err);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    if (!user || user.role !== "owner") navigate("/login");
-  }, [user, navigate]);
-
-  // โหลดข้อเสนอทั้งหมด
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        setLoading(true);
-        const all = await listAllContracts();
-        if (!alive) return;
-        // เรียงตามวันที่ใหม่สุดก่อน
-        const sorted = all.sort(
-          (a, b) => new Date(b.contract_date) - new Date(a.contract_date)
-        );
-        setOffers(sorted);
-      } catch (e) {
-        if (!alive) return;
-        setErr(e?.message || "โหลดข้อเสนอไม่สำเร็จ");
-      } finally {
-        if (!alive) return;
-        setLoading(false);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
+    reload();
   }, []);
 
-  const handleApprove = async (id) => {
-    if (!window.confirm("ยืนยันการอนุมัติข้อเสนอนี้หรือไม่?")) return;
+  // โครง columns ของตาราง
+  const columns = useMemo(
+    () => [
+      { key: "contract_id", header: "สัญญา" },
+      { key: "broker_name", header: "ผู้รับเหมา" },
+      { key: "quantity", header: "ปริมาณ (กก.)" },
+      { key: "offer_price", header: "ราคาเสนอ (฿/กก.)" },
+      { key: "payment_term", header: "วิธีจ่าย" },
+      { key: "submitted_at", header: "วันที่ยื่น" },
+    ],
+    []
+  );
+
+  // กด “อนุมัติ”
+  async function handleApprove(id) {
     try {
+      setActionId(id);
       await approveContract(id);
-      const all = await listAllContracts();
-      setOffers(all);
-      alert("อนุมัติข้อเสนอเรียบร้อย ✅");
-    } catch (e) {
-      alert(e?.message || "ไม่สามารถอนุมัติข้อเสนอได้");
+      await reload();
+    } catch (err) {
+      console.error("Approve error:", err);
+    } finally {
+      setActionId(null);
     }
-  };
+  }
 
-  const handleReject = async (id) => {
-    if (!window.confirm("ปฏิเสธข้อเสนอนี้หรือไม่?")) return;
+  // กด “ปฏิเสธ”
+  async function handleReject(id) {
     try {
+      setActionId(id);
       await rejectContract(id);
-      const all = await listAllContracts();
-      setOffers(all);
-      alert("ปฏิเสธข้อเสนอเรียบร้อย ❌");
-    } catch (e) {
-      alert(e?.message || "ไม่สามารถปฏิเสธข้อเสนอได้");
+      await reload();
+    } catch (err) {
+      console.error("Reject error:", err);
+    } finally {
+      setActionId(null);
     }
-  };
-
-  const fmtDT = (iso) =>
-    new Date(iso).toLocaleString("th-TH", {
-      dateStyle: "medium",
-      timeStyle: "short",
-    });
+  }
 
   return (
-    <div
-      className={`min-h-screen w-full bg-slate-50 text-slate-900 flex flex-col md:flex-row ${
-        isSidebarOpen ? "overflow-hidden md:overflow-auto" : ""
-      }`}
-    >
-      <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
-      {isSidebarOpen && (
-        <div
-          className="fixed inset-0 bg-black/40 z-40 md:hidden"
-          onClick={() => setIsSidebarOpen(false)}
-        />
-      )}
+    <div className="min-h-screen bg-slate-50">
+      <HeaderWrapper
+        title="ข้อเสนอจากผู้รับเหมา"
+        subtitle="อนุมัติหรือปฏิเสธข้อเสนอที่รอการพิจารณา"
+      />
+      <div className="flex">
+        <Sidebar />
+        <main className="flex-1 pt-28 px-4 md:px-6">
+          <Card>
+            <PageHeader
+              title="รายการข้อเสนอ (รอการพิจารณา)"
+              subtitle={`พบ ${offers.length} รายการ`}
+            />
 
-      <div className="flex-1 min-w-0 flex flex-col">
-        <HeaderWrapper
-          onMenuClick={() => setIsSidebarOpen(true)}
-          title="ข้อเสนอจากผู้รับเหมา"
-          subtitle="พิจารณาข้อเสนอและอนุมัติหรือปฏิเสธ"
-        />
-        <main className="p-4 sm:p-6 pt-28">
-          <div className="max-w-5xl mx-auto space-y-4">
             {loading ? (
-              <Card>กำลังโหลดข้อมูล...</Card>
-            ) : err ? (
-              <Card className="text-rose-600">{err}</Card>
-            ) : offers.length === 0 ? (
-              <Card className="text-slate-600 text-sm">
-                ยังไม่มีข้อเสนอจากผู้รับเหมา
-              </Card>
+              <div className="py-12 text-center text-gray-500">
+                กำลังโหลดข้อมูล...
+              </div>
             ) : (
-              offers.map((o) => (
-                <Card key={o.contract_id} className="space-y-3">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <div className="font-semibold text-lg">
-                        #{o.contract_id.slice(0, 8)} — {o.status}
-                      </div>
-                      <div className="text-sm text-slate-600">
-                        ผู้รับเหมา: {o.broker_id ?? "-"} • วันที่ส่ง{" "}
-                        {fmtDT(o.contract_date)}
-                      </div>
-                    </div>
-                    <span
-                      className={`px-3 py-1 rounded-lg text-sm font-medium ${
-                        o.status === "รอการพิจารณา"
-                          ? "bg-amber-100 text-amber-700"
-                          : o.status === "ยอมรับ"
-                          ? "bg-emerald-100 text-emerald-700"
-                          : "bg-rose-100 text-rose-700"
-                      }`}
-                    >
-                      {o.status}
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-2 text-sm">
-                    <Info
-                      label="ปริมาณ"
-                      value={`${Number(o.qtt_estimate).toLocaleString("th-TH")} กก.`}
+              <DataTable
+                columns={columns}
+                data={offers}
+                emptyText="ยังไม่มีข้อเสนอที่รอการพิจารณา"
+                renderRowActions={(row) => (
+                  <div className="flex justify-end gap-2">
+                    <SecondaryButton
+                      title="ปฏิเสธ"
+                      onClick={() => handleReject(row.contract_id)}
+                      disabled={actionId === row.contract_id}
                     />
-                    <Info
-                      label="ราคาเสนอ"
-                      value={`${Number(o.offerprice).toLocaleString("th-TH")} บาท/กก.`}
+                    <PrimaryButton
+                      title="อนุมัติ"
+                      onClick={() => handleApprove(row.contract_id)}
+                      disabled={actionId === row.contract_id}
                     />
-                    <Info label="การชำระเงิน" value={o.payment_term} />
-                    <Info label="หมายเหตุ" value={o.note || "-"} />
                   </div>
-
-                  {o.status === "รอการพิจารณา" && (
-                    <div className="flex gap-3 mt-2">
-                      <button
-                        onClick={() => handleApprove(o.contract_id)}
-                        className="px-3 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-sm"
-                      >
-                        ✅ อนุมัติ
-                      </button>
-                      <button
-                        onClick={() => handleReject(o.contract_id)}
-                        className="px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-sm"
-                      >
-                        ❌ ปฏิเสธ
-                      </button>
-                    </div>
-                  )}
-                </Card>
-              ))
+                )}
+              />
             )}
-          </div>
+          </Card>
         </main>
       </div>
-    </div>
-  );
-}
-
-function Info({ label, value }) {
-  return (
-    <div>
-      <div className="text-slate-500">{label}</div>
-      <div className="font-medium">{value}</div>
     </div>
   );
 }

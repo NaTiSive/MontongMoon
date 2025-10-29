@@ -1,101 +1,116 @@
 // src/api/contracts.js
-// เปลี่ยนเป็น fetch() เมื่อมี backend พร้อม
+// Mock API บน LocalStorage (เปลี่ยนเป็น fetch() เมื่อมี backend)
+
 const CONTRACTS_KEY = "mm:contracts@v1";
-const BROKERS_KEY   = "mm:brokers@v1";
+const BROKER_APPROVAL_KEY = "mm:broker-approvals@v1";
 
-export const PAYMENT_TERMS = ["เงินสด","โอนเงิน","ผ่อนชำระ","อื่นๆ"]; // ตรง enum DB
-
+// ---------- utils ----------
+function load(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : (fallback ?? null);
+  } catch {
+    return fallback ?? null;
+  }
+}
+function save(key, data) {
+  localStorage.setItem(key, JSON.stringify(data));
+}
 function uuid() {
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
-    const r = (Math.random()*16)|0, v = c === "x" ? r : (r&0x3)|0x8;
+  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+  // fallback
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0,
+      v = c === "x" ? r : (r & 0x3) | 0x8;
     return v.toString(16);
   });
 }
 
+// ---------- owner settings ----------
 export async function getOwnerDeadline() {
-  // mock 7 วันข้างหน้า
-  return { current_deadline_date: new Date(Date.now() + 7*86400000).toISOString() };
+  const sevenDays = 7 * 24 * 60 * 60 * 1000;
+  return { current_deadline_date: new Date(Date.now() + sevenDays).toISOString() };
 }
 
+// ---------- broker submission context (mock) ----------
 export async function getBrokerSubmissionContext({ owner_id = 1, broker_id }) {
-  // mock: แยกปัญหาออกจากสถานะต้น (ไม่มี "มีปัญหา" ใน enum ต้นแล้ว)
   const totalTrees = 128;
   const problemsOpen = 5;
   const byStatus = [
-    { status: "ปกติ",  count: 90 },
+    { status: "ปกติ", count: 90 },
     { status: "ออกดอก", count: 20 },
-    { status: "ออกผล",  count: 13 },
+    { status: "ออกผล", count: 13 },
+    { status: "มีปัญหา", count: 5 },
   ];
   return { totalTrees, problemsOpen, byStatus };
 }
 
-export async function createContract({ broker_id, owner_id = 1, qtt_estimate, offerprice, payment_term, note }) {
-  if (!PAYMENT_TERMS.includes(payment_term)) {
-    throw new Error("payment_term ไม่ถูกต้อง");
-  }
+// ---------- contracts ----------
+export async function createContract({
+  broker_id,
+  owner_id = 1,
+  qtt_estimate,
+  offerprice,
+  payment_term,
+  note,
+}) {
   const now = new Date().toISOString();
-  const data = JSON.parse(localStorage.getItem(CONTRACTS_KEY) || "[]");
+  const all = load(CONTRACTS_KEY, []) || [];
   const row = {
     contract_id: uuid(),
     broker_id,
     owner_id,
-    status: "รอการพิจารณา",
+    status: "รอการพิจารณา", // สำคัญ: ให้ Owner เห็นในหน้า offers
     contract_date: now,
-    contract_deadline: null, // เมื่อ Owner ตั้งรอบจริงค่อยใส่
+    contract_deadline: null, // ไว้ผูกกับรอบถ้ามี
     qtt_estimate: Number(qtt_estimate),
-    offerprice: String(offerprice ?? ""),
-    payment_term,
-    note: note || ""
+    offerprice: Number(offerprice),
+    payment_term: String(payment_term || ""),
+    note: String(note || ""),
   };
-  data.push(row);
-  localStorage.setItem(CONTRACTS_KEY, JSON.stringify(data));
+  all.push(row);
+  save(CONTRACTS_KEY, all);
   return row;
 }
 
-export function listContracts() {
-  return JSON.parse(localStorage.getItem(CONTRACTS_KEY) || "[]");
+export async function listAllContracts() {
+  const all = load(CONTRACTS_KEY, []) || [];
+  return all.sort((a, b) => new Date(b.contract_date) - new Date(a.contract_date));
 }
 
-export function approveContract(contract_id) {
-  const data = listContracts();
-  const idx = data.findIndex(c => c.contract_id === contract_id);
-  if (idx === -1) throw new Error("ไม่พบสัญญา");
-  data[idx].status = "ยอมรับ"; // ใช้คำตาม enum DB
-  localStorage.setItem(CONTRACTS_KEY, JSON.stringify(data));
-  // เมื่อ owner ยอมรับ ให้ broker ได้สิทธิ์เต็มระบบ
-  setBrokerApproval(data[idx].broker_id, "approved");
-  return data[idx];
+export async function listBrokerContracts(broker_id) {
+  const all = (await listAllContracts()) || [];
+  return all.filter((c) => String(c.broker_id) === String(broker_id));
 }
 
-export function rejectContract(contract_id) {
-  const data = listContracts();
-  const idx = data.findIndex(c => c.contract_id === contract_id);
-  if (idx === -1) throw new Error("ไม่พบสัญญา");
-  data[idx].status = "ปฏิเสธ";
-  localStorage.setItem(CONTRACTS_KEY, JSON.stringify(data));
-  // ปฏิเสธ → สิทธิ์ยังคง pending
-  setBrokerApproval(data[idx].broker_id, "pending");
-  return data[idx];
+export async function approveContract(contract_id) {
+  const all = load(CONTRACTS_KEY, []) || [];
+  const i = all.findIndex((c) => c.contract_id === contract_id);
+  if (i === -1) throw new Error("ไม่พบข้อเสนอ");
+  all[i].status = "ยอมรับ";
+  save(CONTRACTS_KEY, all);
+  // ตัวอย่าง: เมื่อ owner อนุมัติข้อเสนอแรกของ broker → mark approved
+  if (all[i]?.broker_id != null) {
+    setBrokerApproval(all[i].broker_id, "approved");
+  }
+  return all[i];
 }
 
-// สิทธิ์ของ broker (ใช้ใน Login/Guard)
-export function getBrokerApproval(broker_id) {
-  const map = JSON.parse(localStorage.getItem(BROKERS_KEY) || "{}");
-  // ดีฟอลต์ให้ "pending" ถ้าไม่เคยตั้ง
-  return map[String(broker_id)] ?? "pending";
-}
-export function setBrokerApproval(broker_id, status /* 'approved' | 'pending' */) {
-  const map = JSON.parse(localStorage.getItem(BROKERS_KEY) || "{}");
-  map[String(broker_id)] = status;
-  localStorage.setItem(BROKERS_KEY, JSON.stringify(map));
+export async function rejectContract(contract_id) {
+  const all = load(CONTRACTS_KEY, []) || [];
+  const i = all.findIndex((c) => c.contract_id === contract_id);
+  if (i === -1) throw new Error("ไม่พบข้อเสนอ");
+  all[i].status = "ปฏิเสธ";
+  save(CONTRACTS_KEY, all);
+  return all[i];
 }
 
-// utility: ห้าม broker ยื่นซ้ำในรอบเดียวกันเมื่อมีข้อเสนอ active
+// บังคับ 1 ข้อเสนอ active ต่อรอบ (active = รอการพิจารณา | ยอมรับ)
 export function hasActiveOfferForCycle({ broker_id, cycle_deadline }) {
-  const all = listContracts();
-  const active = new Set(["รอการพิจารณา","ยอมรับ"]);
-  return all.some(c => {
-    if (c.broker_id !== broker_id) return false;
+  const all = load(CONTRACTS_KEY, []) || [];
+  const active = new Set(["รอการพิจารณา", "ยอมรับ"]);
+  return all.some((c) => {
+    if (String(c.broker_id) !== String(broker_id)) return false;
     const sameCycle =
       !cycle_deadline ||
       !c.contract_deadline ||
@@ -103,3 +118,19 @@ export function hasActiveOfferForCycle({ broker_id, cycle_deadline }) {
     return sameCycle && active.has(c.status);
   });
 }
+
+// ---------- broker approval (LocalStorage) ----------
+export function setBrokerApproval(broker_id, status) {
+  const map = load(BROKER_APPROVAL_KEY, {}) || {};
+  map[String(broker_id)] = status; // "approved" | "pending" | "rejected" (ถ้าต้องการ)
+  save(BROKER_APPROVAL_KEY, map);
+  return map[String(broker_id)];
+}
+
+export function getBrokerApproval(broker_id) {
+  const map = load(BROKER_APPROVAL_KEY, {}) || {};
+  return map[String(broker_id)] || "pending";
+}
+
+// 🔁 alias รองรับโค้ดเดิมที่ import getBrokerApprovalStatus
+export const getBrokerApprovalStatus = getBrokerApproval;

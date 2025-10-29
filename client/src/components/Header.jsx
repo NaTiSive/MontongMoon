@@ -1,4 +1,3 @@
-import "./Header.css";
 import { useNavigate } from "react-router-dom";
 import { GiHamburgerMenu } from "react-icons/gi"; // ✅ ต้อง import ไอคอนนี้เข้ามา
 

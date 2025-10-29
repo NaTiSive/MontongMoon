@@ -1,11 +1,20 @@
-export default function PrimaryButton({ title = "primaryButton", onClick,   type = "button",
+// src/components/PrimaryButton.jsx
+export default function PrimaryButton({
+  title = "primaryButton",
+  onClick,
+  type = "button",
   disabled = false,
-  className = "", }) {
+  className = "",
+}) {
   return (
     <button
       onClick={onClick}
-      className={`text-xl bg-green-700 text-white px-4 py-2 rounded-lg 
-                  hover:bg-green-800 transition ${className}`}
+      type={type}
+      disabled={disabled}
+      className={`text-xl px-4 py-2 rounded-lg transition
+                  ${disabled ? "bg-green-400 cursor-not-allowed opacity-70"
+                             : "bg-green-700 hover:bg-green-800"}
+                  text-white ${className}`}
     >
       {title}
     </button>

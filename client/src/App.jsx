@@ -24,11 +24,6 @@ import OwnerTransactions from "./pages/owner/OwnerTransactions";
 import OwnerProblems from "./pages/owner/OwnerProblems";
 import OwnerActivities from "./pages/owner/OwnerActivities";
 
-/* ==========================================================
-   ProtectedRoute: บังคับให้ล็อกอินก่อนเข้า
-   - ถ้า loading จะรอจนกว่า AuthContext โหลดเสร็จ
-   - ถ้ายังไม่ได้ล็อกอินจะถูกส่งกลับ /login
-========================================================== */
 function ProtectedRoute({ role }) {
   const { user, loading } = useAuth();
 
@@ -40,48 +35,30 @@ function ProtectedRoute({ role }) {
     );
 
   if (!user) return <Navigate to="/login" replace />;
-
-  if (role && user.role !== role)
-    return <Navigate to={`/${user.role}/dashboard`} replace />;
-
+  if (role && user.role !== role) return <Navigate to={`/${user.role}/dashboard`} replace />;
   return <Outlet />;
 }
 
-/* ==========================================================
-   ApprovalGuard: ใช้เฉพาะ Broker
-   - ถ้ายัง pending จะให้กลับหน้า dashboard
-   - ถ้า approved แล้วถึงเข้าได้
-========================================================== */
 function ApprovalGuard() {
   const { user, loading } = useAuth();
-
   if (loading) return null;
   if (!user) return <Navigate to="/login" replace />;
-  if (user.role !== "broker")
-    return <Navigate to={`/${user.role}/dashboard`} replace />;
-
-  // ถ้ายังไม่ได้อนุมัติ ให้กลับไปหน้า dashboard
-  if (user.approvalStatus !== "approved")
-    return <Navigate to="/broker/dashboard" replace />;
-
+  if (user.role !== "broker") return <Navigate to={`/${user.role}/dashboard`} replace />;
+  if (user.approvalStatus !== "approved") return <Navigate to="/broker/dashboard" replace />;
   return <Outlet />;
 }
 
-/* ==========================================================
-   เส้นทางหลักทั้งหมด
-========================================================== */
 export default function App() {
   return (
     <Routes>
-      {/* --- หน้า default --- */}
       <Route path="/" element={<Navigate to="/login" replace />} />
 
-      {/* --- Auth routes --- */}
+      {/* Auth routes */}
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<Signup />} />
       <Route path="/profile" element={<Profile />} />
 
-      {/* --- Owner group --- */}
+      {/* Owner group */}
       <Route element={<ProtectedRoute role="owner" />}>
         <Route path="/owner/dashboard" element={<OwnerDashboard />} />
         <Route path="/owner/offers" element={<OwnerOffers />} />
@@ -92,13 +69,11 @@ export default function App() {
         <Route path="/owner/activities" element={<OwnerActivities />} />
       </Route>
 
-      {/* --- Broker group --- */}
+      {/* Broker group */}
       <Route element={<ProtectedRoute role="broker" />}>
-        {/* dashboard เข้าได้เสมอ */}
         <Route path="/broker/dashboard" element={<BrokerDashboard />} />
         <Route path="/broker/offers" element={<BrokerSubmitOffer />} />
 
-        {/* ส่วนอื่นเข้าได้เฉพาะเมื่อ approved */}
         <Route element={<ApprovalGuard />}>
           <Route path="/broker/harvest" element={<BrokerHarvest />} />
           <Route path="/broker/transaction" element={<BrokerTransaction />} />
@@ -107,7 +82,6 @@ export default function App() {
         </Route>
       </Route>
 
-      {/* --- fallback 404 --- */}
       <Route path="*" element={<div className="p-6">404 ไม่พบหน้านี้</div>} />
     </Routes>
   );

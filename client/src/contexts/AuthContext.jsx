@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
+import { getBrokerApproval } from "../api/contracts";
 
 const AuthCtx = createContext(null);
 
@@ -36,6 +37,27 @@ export function AuthProvider({ children }) {
     });
   };
 
+  // ✅ auto-sync broker approvalStatus (เมื่อโฟกัสหน้าต่าง หรือเป็นระยะ)
+  useEffect(() => {
+    if (user?.role !== "broker" || user?.broker_id == null) return;
+    const sync = () => {
+      try {
+        const latest = getBrokerApproval(user.broker_id);
+        if (latest && latest !== user.approvalStatus) {
+          updateUser({ approvalStatus: latest });
+        }
+      } catch {}
+    };
+    // sync เมื่อกลับมาโฟกัส + interval สั้น ๆ
+    window.addEventListener("focus", sync);
+    const t = setInterval(sync, 2000);
+    sync(); // เรียกทันทีรอบหนึ่ง
+    return () => {
+      window.removeEventListener("focus", sync);
+      clearInterval(t);
+    };
+  }, [user?.role, user?.broker_id, user?.approvalStatus]);
+
   // ✅ update approval status (owner→broker)
   const updateApproval = (status) => {
     setUser((prev) => {
@@ -52,7 +74,9 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthCtx.Provider value={{ user, loading, login, logout, updateUser, updateApproval }}>
+    <AuthCtx.Provider
+      value={{ user, loading, login, logout, updateUser, updateApproval }}
+    >
       {children}
     </AuthCtx.Provider>
   );
