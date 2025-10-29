@@ -1,11 +1,12 @@
 // src/pages/owner/OwnerTreeStatus.jsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import Sidebar from "../../components/Sidebar";
 import HeaderWrapper from "../../components/HeaderWrapper";
 import Card from "../../components/Card";
 import { useAuth } from "../../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { getBrokerSubmissionContext } from "../../api/contracts";
+import { listTrees } from "../../api/trees";
 
 export default function OwnerTreeStatus() {
   const { user } = useAuth();
@@ -15,6 +16,10 @@ export default function OwnerTreeStatus() {
   const [loading, setLoading] = useState(true);
   const [summary, setSummary] = useState({ totalTrees: 0, problemsOpen: 0, byStatus: [] });
   const [err, setErr] = useState("");
+
+  const [trees, setTrees] = useState([]);
+  const [q, setQ] = useState("");
+  const [statusFilter, setStatusFilter] = useState("ทั้งหมด");
 
   useEffect(() => {
     if (!user || user.role !== "owner") navigate("/login");
@@ -26,8 +31,10 @@ export default function OwnerTreeStatus() {
       try {
         setLoading(true);
         const s = await getBrokerSubmissionContext({ owner_id: 1 });
+        const t = listTrees() || [];
         if (!alive) return;
         setSummary(s);
+        setTrees(t);
       } catch (e) {
         if (!alive) return;
         setErr(e?.message || "โหลดข้อมูลไม่สำเร็จ");
@@ -40,21 +47,45 @@ export default function OwnerTreeStatus() {
   }, []);
 
   const statusStyle = {
-    "ปกติ": { box: "bg-emerald-100", text: "text-emerald-700", border: "border-emerald-300" },
-    "ออกดอก": { box: "bg-sky-100", text: "text-sky-700", border: "border-sky-300" },
-    "ออกผล": { box: "bg-amber-100", text: "text-amber-700", border: "border-amber-300" },
-    "มีปัญหา": { box: "bg-rose-100", text: "text-rose-700", border: "border-rose-300" },
-    "มีปัญหา(ปิดแล้ว)": { box: "bg-gray-100", text: "text-gray-700", border: "border-gray-300" },
+    "ปกติ": { box: "bg-emerald-100", text: "text-emerald-700", border: "border-emerald-300", chip: "bg-emerald-100 text-emerald-700" },
+    "ออกดอก": { box: "bg-sky-100", text: "text-sky-700", border: "border-sky-300", chip: "bg-sky-100 text-sky-700" },
+    "ออกผล": { box: "bg-amber-100", text: "text-amber-700", border: "border-amber-300", chip: "bg-amber-100 text-amber-700" },
+    "มีปัญหา": { box: "bg-rose-100", text: "text-rose-700", border: "border-rose-300", chip: "bg-rose-100 text-rose-700" },
+    "มีปัญหา(ปิดแล้ว)": { box: "bg-gray-100", text: "text-gray-700", border: "border-gray-300", chip: "bg-gray-100 text-gray-700" },
   };
 
-  const buckets = (summary.byStatus || []).map(s => ({
-    key: s.status, count: s.count, ...(statusStyle[s.status] || statusStyle["ปกติ"])
+  const buckets = (summary.byStatus || []).map((s) => ({
+    key: s.status,
+    count: s.count,
+    ...(statusStyle[s.status] || statusStyle["ปกติ"]),
   }));
 
+  const norm = (t) => ({
+    id: t.id || t.tree_id || "",
+    name: t.name || `ต้นที่ ${(t.id || t.tree_id || "").toString()}`,
+    status: t.status || "ปกติ",
+  });
+
+  const filteredTrees = useMemo(() => {
+    const k = q.trim().toLowerCase();
+    const list = (trees || []).map(norm);
+    return list.filter((x) => {
+      const hitQ = k ? `${x.id} ${x.name} ${x.status}`.toLowerCase().includes(k) : true;
+      const hitStatus = statusFilter === "ทั้งหมด" ? true : x.status === statusFilter;
+      return hitQ && hitStatus;
+    });
+  }, [trees, q, statusFilter]);
+
   return (
-    <div className={`min-h-screen w-full bg-slate-50 text-slate-900 flex flex-col md:flex-row ${isSidebarOpen ? "overflow-hidden md:overflow-auto" : ""}`}>
+    <div
+      className={`min-h-screen w-full bg-slate-50 text-slate-900 flex flex-col md:flex-row ${
+        isSidebarOpen ? "overflow-hidden md:overflow-auto" : ""
+      }`}
+    >
       <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
-      {isSidebarOpen && <div className="fixed inset-0 bg-black/40 z-40 md:hidden" onClick={() => setIsSidebarOpen(false)} />}
+      {isSidebarOpen && (
+        <div className="fixed inset-0 bg-black/40 z-40 md:hidden" onClick={() => setIsSidebarOpen(false)} />
+      )}
       <div className="flex-1 min-w-0 flex flex-col">
         <HeaderWrapper
           onMenuClick={() => setIsSidebarOpen(true)}
@@ -69,8 +100,9 @@ export default function OwnerTreeStatus() {
               <Card className="text-rose-600">{err}</Card>
             ) : (
               <>
+                {/* สรุปภาพรวมตามสถานะ */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  {buckets.map(b => (
+                  {buckets.map((b) => (
                     <Card key={b.key} className={`border ${b.border}`}>
                       <div className={`${b.box} rounded-xl px-4 py-5`}>
                         <div className={`text-sm ${b.text}`}>{b.key}</div>
@@ -80,6 +112,7 @@ export default function OwnerTreeStatus() {
                   ))}
                 </div>
 
+                {/* กล่องสรุปตัวเลขรวม */}
                 <Card>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
                     <div>
@@ -97,6 +130,66 @@ export default function OwnerTreeStatus() {
                       </div>
                     </div>
                   </div>
+                </Card>
+
+                {/* ตารางข้อมูลต้นทุเรียนทุกต้น */}
+                <Card>
+                  <div className="flex flex-col md:flex-row gap-3 md:items-end mb-3">
+                    <div className="flex-1">
+                      <label className="block text-sm text-slate-600 mb-1">ค้นหา</label>
+                      <input
+                        value={q}
+                        onChange={(e) => setQ(e.target.value)}
+                        placeholder="ค้นหา ID/ชื่อ/สถานะ"
+                        className="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                      />
+                    </div>
+                    <div className="w-full md:w-52">
+                      <label className="block text-sm text-slate-600 mb-1">สถานะ</label>
+                      <select
+                        value={statusFilter}
+                        onChange={(e) => setStatusFilter(e.target.value)}
+                        className="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                      >
+                        <option value="ทั้งหมด">ทั้งหมด</option>
+                        <option value="ปกติ">ปกติ</option>
+                        <option value="ออกดอก">ออกดอก</option>
+                        <option value="ออกผล">ออกผล</option>
+                        <option value="มีปัญหา">มีปัญหา</option>
+                        <option value="มีปัญหา(ปิดแล้ว)">มีปัญหา(ปิดแล้ว)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {filteredTrees.length === 0 ? (
+                    <div className="text-sm text-slate-600">ยังไม่มีข้อมูลต้นทุเรียน</div>
+                  ) : (
+                    <div className="overflow-x-auto rounded-lg border bg-white shadow-sm">
+                      <table className="min-w-full text-sm">
+                        <thead>
+                          <tr className="text-left bg-slate-50 text-slate-600">
+                            <th className="py-2 px-3">รหัสต้น</th>
+                            <th className="py-2 px-3">ชื่อ</th>
+                            <th className="py-2 px-3">สถานะ</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredTrees.map((t, i) => {
+                            const s = statusStyle[t.status] || statusStyle["ปกติ"];
+                            return (
+                              <tr key={t.id} className={i % 2 === 0 ? "bg-white" : "bg-slate-50/60"}>
+                                <td className="py-2 px-3">{t.id}</td>
+                                <td className="py-2 px-3">{t.name}</td>
+                                <td className="py-2 px-3">
+                                  <span className={`px-2 py-0.5 rounded-lg text-xs ${s.chip}`}>{t.status}</span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </Card>
               </>
             )}
