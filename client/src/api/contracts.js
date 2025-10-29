@@ -3,6 +3,7 @@
 
 const CONTRACTS_KEY = "mm:contracts@v1";
 const BROKER_APPROVAL_KEY = "mm:broker-approvals@v1";
+const OWNER_DEADLINE_KEY = "mm:owner-deadline@v1";
 
 // ---------- utils ----------
 function load(key, fallback) {
@@ -28,8 +29,26 @@ function uuid() {
 
 // ---------- owner settings ----------
 export async function getOwnerDeadline() {
-  const sevenDays = 7 * 24 * 60 * 60 * 1000;
-  return { current_deadline_date: new Date(Date.now() + sevenDays).toISOString() };
+  // ✅ อ่านจาก LocalStorage
+  let iso = load(OWNER_DEADLINE_KEY, null);
+
+  if (!iso) {
+    // ถ้าไม่เคยตั้ง ให้ seed เป็น +7 วัน
+    const sevenDays = 7 * 24 * 60 * 60 * 1000;
+    iso = new Date(Date.now() + sevenDays).toISOString();
+    save(OWNER_DEADLINE_KEY, iso);
+  }
+
+  return { current_deadline_date: iso };
+}
+
+export async function setOwnerDeadline(newISO) {
+  // ✅ บันทึกลง LocalStorage
+  if (!newISO) throw new Error("ต้องระบุวันที่ปิดรับข้อเสนอ");
+  const d = new Date(newISO);
+  if (isNaN(d.getTime())) throw new Error("รูปแบบวันที่ไม่ถูกต้อง");
+  save(OWNER_DEADLINE_KEY, d.toISOString());
+  return { current_deadline_date: d.toISOString() };
 }
 
 // ---------- broker submission context (mock) ----------
