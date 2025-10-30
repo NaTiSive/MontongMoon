@@ -5,7 +5,11 @@ import Card from "../../components/Card";
 import PageHeader from "../../components/PageHeader";
 import { useAuth } from "../../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
-import { GRADES, listFruits, listFruitsByDateRange } from "../../api/fruits";
+import {
+  GRADES,
+  listHarvestOnly,
+  listFruitsByDateRangeHarvestOnly,
+} from "../../api/fruits";
 
 export default function OwnerHarvest() {
   const { user } = useAuth();
@@ -31,7 +35,7 @@ export default function OwnerHarvest() {
     (async () => {
       try {
         setLoading(true);
-        const all = listFruits();
+        const all = listHarvestOnly(); // ✅ ดึงเฉพาะรายการเก็บเกี่ยว
         if (!alive) return;
         setRows(all);
       } catch (e) {
@@ -60,9 +64,11 @@ export default function OwnerHarvest() {
   const filtered = useMemo(() => {
     let list = rows;
     if (startDate || endDate) {
-      list = listFruitsByDateRange({
+      list = listFruitsByDateRangeHarvestOnly({
         startISO: startDate ? new Date(startDate).toISOString() : undefined,
-        endISO: endDate ? new Date(endDate + "T23:59:59").toISOString() : undefined,
+        endISO: endDate
+          ? new Date(endDate + "T23:59:59").toISOString()
+          : undefined,
       });
     }
     if (gradeFilter !== "ทั้งหมด")
@@ -71,7 +77,9 @@ export default function OwnerHarvest() {
     const k = q.trim().toLowerCase();
     if (!k) return list;
     return list.filter((x) =>
-      `${x.id} ${x.grade} ${x.weight_kg} ${x.note ?? ""} ${x.broker_id ?? ""}`
+      `${x.id} ${x.grade} ${x.weight_kg} ${x.note ?? ""} ${
+        x.broker_id ?? ""
+      }`
         .toLowerCase()
         .includes(k)
     );
@@ -79,7 +87,10 @@ export default function OwnerHarvest() {
 
   // รวมยอดตามเกรด
   const totals = useMemo(() => {
-    const sumWeight = filtered.reduce((s, r) => s + Number(r.weight_kg || 0), 0);
+    const sumWeight = filtered.reduce(
+      (s, r) => s + Number(r.weight_kg || 0),
+      0
+    );
     const byGrade = GRADES.reduce(
       (acc, g) => {
         const items = filtered.filter((r) => r.grade === g);
@@ -221,12 +232,16 @@ export default function OwnerHarvest() {
                       {filtered.map((r, i) => (
                         <tr
                           key={r.id}
-                          className={i % 2 === 0 ? "bg-white" : "bg-slate-50/60"}
+                          className={
+                            i % 2 === 0 ? "bg-white" : "bg-slate-50/60"
+                          }
                         >
                           <td className="py-2 px-3">{fmtDT(r.harvest_at)}</td>
                           <td className="py-2 px-3">{r.broker_id ?? "-"}</td>
                           <td className="py-2 px-3">
-                            {r.grade === "ตกเกรด" ? r.grade : `เกรด ${r.grade}`}
+                            {r.grade === "ตกเกรด"
+                              ? r.grade
+                              : `เกรด ${r.grade}`}
                           </td>
                           <td className="py-2 px-3">
                             {Number(r.weight_kg).toLocaleString("th-TH")}
@@ -242,7 +257,7 @@ export default function OwnerHarvest() {
                 </div>
               )}
               <p className="text-xs text-slate-400 mt-2">
-                * ข้อมูลนี้เป็น mock — พร้อมเชื่อม API จริงได้ทันทีเมื่อ backend พร้อม
+                * แสดงเฉพาะรายการเก็บเกี่ยว ไม่รวมการส่งออก
               </p>
             </Card>
           </div>
