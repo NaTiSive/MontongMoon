@@ -6,15 +6,8 @@ import Card from "../../components/Card";
 import { useAuth } from "../../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 
-import {
-  createActivity,
-  listActivitiesByBroker,
-} from "../../api/activities";
-import {
-  listTrees,
-  seedTreesIfEmpty,
-  updateTreeStatus,
-} from "../../api/trees";
+import { createActivity, listActivitiesByBroker } from "../../api/activities";
+import { listTrees, seedTreesIfEmpty, updateTreeStatus } from "../../api/trees";
 
 export default function BrokerActivity() {
   const { user } = useAuth();
@@ -45,9 +38,7 @@ export default function BrokerActivity() {
         if (!alive) return;
         setTrees(t);
         // sort ใหม่สุดก่อน
-        setRows(
-          acts.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-        );
+        setRows(acts.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)));
       } catch (e) {
         if (!alive) return;
         setErr(e?.message || "โหลดข้อมูลไม่สำเร็จ");
@@ -65,17 +56,21 @@ export default function BrokerActivity() {
   // Form state
   const [form, setForm] = useState({
     tree_id: "",
-    type: "รดน้ำ",
+    type: "ดูแลรักษา",
     note: "",
-    updateTree: false,
-    newStatus: "ปกติ", // ปกติ | ออกดอก | ออกผล
   });
 
   const update = (k) => (e) =>
     setForm((p) => ({
       ...p,
-      [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value,
+      [k]: e.target.value,
     }));
+
+  const deriveStatusFromType = (type) => {
+    if (type === "ออกดอก") return "ออกดอก";
+    if (type === "ออกผล") return "ออกผล";
+    return "ปกติ";
+  };
 
   const add = () => {
     if (disabled) return;
@@ -89,24 +84,26 @@ export default function BrokerActivity() {
       type: form.type,
       note: form.note?.trim() || "",
     });
-    // optional: update tree status
-    if (form.updateTree) {
-      try {
-        updateTreeStatus(form.tree_id, form.newStatus);
-        // รีโหลด trees เพื่อสะท้อนสถานะใหม่
-        setTrees(listTrees());
-      } catch (e) {
-        console.error(e);
-        alert(e?.message || "อัปเดตสถานะต้นไม้ไม่สำเร็จ");
-      }
+
+    // อัปเดตสถานะต้นไม้อัตโนมัติจากประเภทกิจกรรม
+    try {
+      const newStatus = deriveStatusFromType(form.type);
+      updateTreeStatus(form.tree_id, newStatus);
+      // รีโหลดสถานะต้นไม้เพื่อให้ UI สะท้อนผล
+      setTrees(listTrees());
+    } catch (e) {
+      console.error(e);
+      alert(e?.message || "อัปเดตสถานะต้นไม้ไม่สำเร็จ");
     }
+
+    // อัปเดตตาราง
     setRows((r) => [rec, ...r]);
+
+    // reset ฟอร์ม (คงประเภทกิจกรรมเดิมไว้ให้)
     setForm({
       tree_id: "",
       type: form.type,
       note: "",
-      updateTree: false,
-      newStatus: "ปกติ",
     });
   };
 
@@ -114,6 +111,9 @@ export default function BrokerActivity() {
   // Filters + search
   const [q, setQ] = useState("");
   const [typeFilter, setTypeFilter] = useState("ทั้งหมด");
+
+  const typeOptions = ["ดูแลรักษา", "ออกดอก", "ออกผล", "เก็บเกี่ยว", "อื่นๆ"];
+
   const filtered = useMemo(() => {
     let list = rows;
     if (typeFilter !== "ทั้งหมด") {
@@ -121,9 +121,7 @@ export default function BrokerActivity() {
     }
     const k = q.trim().toLowerCase();
     if (!k) return list;
-    return list.filter((x) =>
-      `${x.id} ${x.tree_id} ${x.type} ${x.note}`.toLowerCase().includes(k)
-    );
+    return list.filter((x) => `${x.id} ${x.tree_id} ${x.type} ${x.note}`.toLowerCase().includes(k));
   }, [rows, q, typeFilter]);
 
   const fmtDT = (iso) =>
@@ -131,17 +129,6 @@ export default function BrokerActivity() {
       dateStyle: "medium",
       timeStyle: "short",
     });
-
-  const typeOptions = [
-    "รดน้ำ",
-    "ใส่ปุ๋ย",
-    "ตัดหญ้า",
-    "ฉีดพ่น",
-    "ตรวจสุขภาพ",
-    "อื่นๆ",
-  ];
-
-  const statusOptions = ["ปกติ", "ออกดอก", "ออกผล"];
 
   return (
     <div
@@ -161,7 +148,7 @@ export default function BrokerActivity() {
         <HeaderWrapper
           onMenuClick={() => setIsSidebarOpen(true)}
           title="บันทึกกิจกรรม (ฝั่งนายหน้า)"
-          subtitle="เลือกต้นไม้และกิจกรรมที่ทำ — อัปเดตสถานะต้นไม้ได้ถ้าจำเป็น"
+          subtitle="เลือกต้นไม้และกิจกรรมที่ทำ — ระบบจะอัปเดตสถานะต้นไม้อัตโนมัติตามประเภทกิจกรรม"
         />
 
         <main className="p-4 sm:p-6 pt-28">
@@ -179,9 +166,7 @@ export default function BrokerActivity() {
               <h3 className="font-semibold mb-2">เพิ่มกิจกรรมใหม่</h3>
               <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                 <div>
-                  <label className="block text-sm text-slate-600 mb-1">
-                    เลือกต้นไม้
-                  </label>
+                  <label className="block text-sm text-slate-600 mb-1">เลือกต้นไม้</label>
                   <select
                     value={form.tree_id}
                     onChange={update("tree_id")}
@@ -190,17 +175,15 @@ export default function BrokerActivity() {
                   >
                     <option value="">— เลือกต้น —</option>
                     {trees.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.id} — {t.name} ({t.status})
+                      <option key={t.id ?? t.tree_id} value={t.id ?? t.tree_id}>
+                        {(t.id ?? t.tree_id)} — {t.name ?? `ต้นที่ ${t.id ?? t.tree_id}`} ({t.status})
                       </option>
                     ))}
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-sm text-slate-600 mb-1">
-                    ประเภทกิจกรรม
-                  </label>
+                  <label className="block text-sm text-slate-600 mb-1">ประเภทกิจกรรม</label>
                   <select
                     value={form.type}
                     onChange={update("type")}
@@ -214,47 +197,14 @@ export default function BrokerActivity() {
                 </div>
 
                 <div className="md:col-span-2">
-                  <label className="block text-sm text-slate-600 mb-1">
-                    หมายเหตุ
-                  </label>
+                  <label className="block text-sm text-slate-600 mb-1">หมายเหตุ</label>
                   <input
                     value={form.note}
                     onChange={update("note")}
                     disabled={disabled}
                     className="w-full border rounded-lg px-3 py-2 bg-white disabled:bg-slate-100"
-                    placeholder="ตัวอย่าง: แปลง A แถว 2 / ใช้ปุ๋ยสูตร 15-15-15"
+                    placeholder="ตัวอย่าง: แปลง A แถว 2 / ใช้วัสดุคลุมโคน / ตัดแต่งกิ่ง"
                   />
-                </div>
-              </div>
-
-              {/* อัปเดตสถานะต้น (ออปชัน) */}
-              <div className="mt-3 space-y-2">
-                <label className="inline-flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={form.updateTree}
-                    onChange={update("updateTree")}
-                    disabled={disabled}
-                  />
-                  <span>อัปเดตสถานะต้นไม้ (ออปชัน)</span>
-                </label>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-sm text-slate-600 mb-1">
-                      สถานะใหม่
-                    </label>
-                    <select
-                      value={form.newStatus}
-                      onChange={update("newStatus")}
-                      disabled={disabled || !form.updateTree}
-                      className="w-full border rounded-lg px-3 py-2 bg-white disabled:bg-slate-100"
-                    >
-                      {statusOptions.map((s) => (
-                        <option key={s}>{s}</option>
-                      ))}
-                    </select>
-                  </div>
                 </div>
               </div>
 
@@ -262,9 +212,7 @@ export default function BrokerActivity() {
                 onClick={add}
                 disabled={disabled}
                 className={`mt-3 px-4 py-2 rounded-lg text-white text-sm ${
-                  disabled
-                    ? "bg-slate-400 cursor-not-allowed"
-                    : "bg-emerald-700 hover:bg-emerald-800"
+                  disabled ? "bg-slate-400 cursor-not-allowed" : "bg-emerald-700 hover:bg-emerald-800"
                 }`}
               >
                 เพิ่มกิจกรรม
@@ -274,9 +222,7 @@ export default function BrokerActivity() {
             {/* แผงค้นหา/กรอง */}
             <Card>
               <div className="flex flex-col md:flex-row md:items-center gap-3 md:justify-between">
-                <div className="text-sm text-slate-600">
-                  ทั้งหมด {rows.length} รายการ
-                </div>
+                <div className="text-sm text-slate-600">ทั้งหมด {rows.length} รายการ</div>
                 <div className="flex items-center gap-2">
                   <select
                     value={typeFilter}

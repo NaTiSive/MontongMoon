@@ -20,14 +20,14 @@ function uuid() {
  * payload:
  * - type: "รายรับ" | "รายจ่าย"
  * - amount: number (>0)
- * - payment_method: "เงินสด" | "โอนเงิน" | "อื่นๆ"
+ * - payment_method: "เงินสด" | "โอนเงิน" | "ผ่อนชำระ"
  * - note: string
- * - invoice_ref: string
+ * - receipt?: { name:string, mime:string, dataUrl:string } // ไฟล์ใบเสร็จ
  */
 export function createTransaction(broker_id, payload) {
-  const { type, amount, payment_method, note, invoice_ref } = payload || {};
-
+  const { type, amount, payment_method, note, receipt } = payload || {};
   const amt = Number(amount);
+
   if (!type || !["รายรับ", "รายจ่าย"].includes(type)) throw new Error("ประเภทไม่ถูกต้อง");
   if (!amt || amt <= 0) throw new Error("จำนวนเงินไม่ถูกต้อง");
 
@@ -36,10 +36,14 @@ export function createTransaction(broker_id, payload) {
     broker_id: broker_id ?? null,
     type,
     amount: amt,
-    payment_method: payment_method || "เงินสด",
+    payment_method: payment_method || "เงินสด", // รวม "ผ่อนชำระ"
     note: String(note || ""),
-    invoice_ref: String(invoice_ref || ""),
-    status: "รอการตรวจสอบ", // Owner จะเปลี่ยนเป็น อนุมัติ / ปฏิเสธ
+    receipt: receipt && receipt.dataUrl ? {
+      name: receipt.name,
+      mime: receipt.mime,
+      dataUrl: receipt.dataUrl, // สำหรับดาวน์โหลด
+    } : null,
+    status: "รอการตรวจสอบ",
     created_at: new Date().toISOString(),
     updated_at: null,
   };
@@ -77,7 +81,6 @@ export function rejectTransaction(id) {
   return all[i];
 }
 
-// (ออปชัน) ตัวช่วยสรุปผลรวมตามสถานะ/ประเภท
 export function summarizeAll() {
   const all = load();
   const res = {

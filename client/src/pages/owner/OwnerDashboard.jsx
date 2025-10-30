@@ -1,11 +1,10 @@
-// src/pages/owner/OwnerDashboard.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import Sidebar from "../../components/Sidebar";
 import HeaderWrapper from "../../components/HeaderWrapper";
 import Card from "../../components/Card";
 import { useAuth } from "../../contexts/AuthContext";
 import { useNavigate, Link } from "react-router-dom";
-import { listAllContracts, getOwnerDeadline } from "../../api/contracts";
+import { listAllContracts, getOwnerDeadline, setOwnerDeadline } from "../../api/contracts"; // ✅ นำเข้า setOwnerDeadline
 
 export default function OwnerDashboard() {
   const { user } = useAuth();
@@ -16,6 +15,10 @@ export default function OwnerDashboard() {
   const [err, setErr] = useState("");
   const [contracts, setContracts] = useState([]);
   const [deadline, setDeadline] = useState(null);
+
+  // ฟิลด์กำหนดวันปิดรับข้อเสนอ (แบบ date)
+  const [deadlineDate, setDeadlineDate] = useState(""); // yyyy-mm-dd
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!user || user.role !== "owner") navigate("/login");
@@ -29,7 +32,19 @@ export default function OwnerDashboard() {
         const [all, dl] = await Promise.all([listAllContracts(), getOwnerDeadline()]);
         if (!alive) return;
         setContracts(all ?? []);
-        setDeadline(dl?.current_deadline_date ?? null);
+        const iso = dl?.current_deadline_date ?? null;
+        setDeadline(iso);
+
+        // แปลง ISO -> yyyy-mm-dd สำหรับ input[type=date]
+        if (iso) {
+          const d = new Date(iso);
+          const yyyy = d.getFullYear();
+          const mm = String(d.getMonth() + 1).padStart(2, "0");
+          const dd = String(d.getDate()).padStart(2, "0");
+          setDeadlineDate(`${yyyy}-${mm}-${dd}`);
+        } else {
+          setDeadlineDate("");
+        }
       } catch (e) {
         if (!alive) return;
         setErr(e?.message || "โหลดข้อมูลไม่สำเร็จ");
@@ -57,6 +72,28 @@ export default function OwnerDashboard() {
     iso
       ? new Date(iso).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" })
       : "-";
+
+  // ✅ บันทึกวันปิดรับข้อเสนอ
+  const handleSaveDeadline = async () => {
+    try {
+      if (!deadlineDate) {
+        return alert("กรุณาเลือกวันที่ปิดรับข้อเสนอ");
+      }
+      // แปลง yyyy-mm-dd -> end of day (23:59:59) แล้วเป็น ISO
+      const endOfDayLocal = new Date(`${deadlineDate}T23:59:59`);
+      if (isNaN(endOfDayLocal.getTime())) {
+        return alert("รูปแบบวันที่ไม่ถูกต้อง");
+      }
+      setSaving(true);
+      const res = await setOwnerDeadline(endOfDayLocal.toISOString());
+      setDeadline(res?.current_deadline_date ?? null);
+      alert("บันทึกวันปิดรับข้อเสนอเรียบร้อย");
+    } catch (e) {
+      alert(e?.message || "บันทึกไม่สำเร็จ");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className={`min-h-screen w-full bg-slate-50 text-slate-900 flex flex-col md:flex-row ${
@@ -100,12 +137,41 @@ export default function OwnerDashboard() {
                   </Card>
                 </div>
 
+                {/* ✅ การ์ดกำหนดวันปิดรับข้อเสนอ */}
                 <Card>
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div>
                       <div className="text-sm text-slate-500">กำหนดปิดรับข้อเสนอ (รอบปัจจุบัน)</div>
                       <div className="text-lg font-semibold">{fmtDT(deadline)}</div>
+                      <p className="text-xs text-slate-500 mt-1">
+                        * เมื่อถึงกำหนด ผู้รับหน้าจะไม่สามารถส่งข้อเสนอใหม่ได้
+                      </p>
                     </div>
+
+                    <div>
+                      <label className="block text-sm text-slate-600 mb-1">ตั้งวันปิดรับข้อเสนอ</label>
+                      <div className="flex gap-2">
+                        <input
+                          type="date"
+                          value={deadlineDate}
+                          onChange={(e) => setDeadlineDate(e.target.value)}
+                          className="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                        />
+                        <button
+                          onClick={handleSaveDeadline}
+                          disabled={saving}
+                          className={`px-3 py-2 rounded-lg text-white text-sm ${
+                            saving ? "bg-slate-400 cursor-not-allowed" : "bg-emerald-700 hover:bg-emerald-800"
+                          }`}
+                        >
+                          {saving ? "กำลังบันทึก…" : "บันทึก"}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mt-4">
+                    <div />
                     <Link
                       to="/owner/offers"
                       className="inline-flex items-center justify-center px-3 py-2 rounded-lg text-white bg-emerald-700 hover:bg-emerald-800 text-sm"
@@ -115,6 +181,7 @@ export default function OwnerDashboard() {
                   </div>
                 </Card>
 
+                {/* ข้อเสนอล่าสุด */}
                 <Card>
                   <div className="flex items-center justify-between mb-2">
                     <h3 className="font-semibold">ข้อเสนอล่าสุด</h3>

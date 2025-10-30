@@ -12,15 +12,22 @@ import { useNavigate } from "react-router-dom";
 const KEY = "mm:fruits@v1";
 
 function loadFruits() {
-  try { return JSON.parse(localStorage.getItem(KEY) || "[]"); } catch { return []; }
+  try {
+    return JSON.parse(localStorage.getItem(KEY) || "[]");
+  } catch {
+    return [];
+  }
 }
 function saveFruits(arr) {
   localStorage.setItem(KEY, JSON.stringify(arr));
 }
 function uuid() {
-  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g,(c)=>{
-    const r=(Math.random()*16)|0, v=c==="x"?r:(r&0x3)|0x8; return v.toString(16);
+  if (typeof crypto !== "undefined" && crypto.randomUUID)
+    return crypto.randomUUID();
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0,
+      v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
   });
 }
 
@@ -45,24 +52,33 @@ export default function OwnerProcessing() {
   }, []);
 
   // ประมาณ “ตกเกรดคงเหลือ” = (sum grade=ตกเกรด) - (sum type=แปรรูป)
+  // ประมาณ “ตกเกรดคงเหลือ” = (sum grade=ตกเกรด เฉพาะที่ยังเป็นเก็บเกี่ยว) - (sum type=แปรรูป)
   const downgradedStock = useMemo(() => {
-    const totalDowngraded = rows
-      .filter(r => r?.grade === "ตกเกรด")
+    // ฝั่ง "เก็บเกี่ยว" (ยังอยู่ในคลัง): กรองเฉพาะที่ไม่ใช่แปรรูป/ส่งออก
+    const totalDowngradedHarvest = rows
+      .filter(
+        (r) =>
+          r?.grade === "ตกเกรด" && r?.type !== "แปรรูป" && r?.type !== "ส่งออก"
+      )
       .reduce((s, r) => s + Number(r?.weight_kg || 0), 0);
+
+    // ฝั่ง "ถูกใช้แปรรูปไปแล้ว"
     const processed = rows
-      .filter(r => r?.type === "แปรรูป")
+      .filter((r) => r?.type === "แปรรูป")
       .reduce((s, r) => s + Number(r?.weight_kg || 0), 0);
-    return Math.max(0, totalDowngraded - processed);
+
+    return Math.max(0, totalDowngradedHarvest - processed);
   }, [rows]);
 
   // ฟอร์ม UC11
   const [form, setForm] = useState({
-    method: "",        // วิธีแปรรูป (ทอด/แช่แข็ง/กวน/อบแห้ง/อื่นๆ)
-    amountKg: "",      // ปริมาณที่จะใช้แปรรูป (kg)
+    method: "", // วิธีแปรรูป (ทอด/แช่แข็ง/กวน/อบแห้ง/อื่นๆ)
+    amountKg: "", // ปริมาณที่จะใช้แปรรูป (kg)
     note: "",
   });
 
-  const onChange = (k) => (e) => setForm(p => ({ ...p, [k]: e.target.value }));
+  const onChange = (k) => (e) =>
+    setForm((p) => ({ ...p, [k]: e.target.value }));
 
   const submit = (e) => {
     e.preventDefault();
@@ -71,18 +87,20 @@ export default function OwnerProcessing() {
 
     // ตรวจสอบตาม UC11 ข้อ 7
     if (!method) return alert("กรุณาเลือกวิธีการแปรรูป");
-    if (!amount || Number.isNaN(amount)) return alert("กรุณาระบุปริมาณให้ถูกต้อง");
+    if (!amount || Number.isNaN(amount))
+      return alert("กรุณาระบุปริมาณให้ถูกต้อง");
     if (amount <= 0) return alert("ปริมาณต้องมากกว่า 0");
-    if (amount > downgradedStock) return alert("ปริมาณเกินกว่าทุเรียนตกเกรดคงเหลือ");
+    if (amount > downgradedStock)
+      return alert("ปริมาณเกินกว่าทุเรียนตกเกรดคงเหลือ");
 
     // บันทึกตาม UC11 ข้อ 8–12: fruit_id ใหม่, date ปัจจุบัน, grade=ตกเกรด, type=แปรรูป
     const rec = {
-      id: uuid(),                // fruit_id
-      grade: "ตกเกรด",          // คงตาม UC11 ข้อ 10
-      type: "แปรรูป",           // ตาม UC11 ข้อ 11
-      process_method: method,    // เก็บ method เพิ่มเติม
-      weight_kg: amount,         // ใช้ field เดียวกับระบบเดิม
-      count: null,               // ไม่เกี่ยวกับจำนวนผลในกรณีแปรรูป
+      id: uuid(), // fruit_id
+      grade: "ตกเกรด", // คงตาม UC11 ข้อ 10
+      type: "แปรรูป", // ตาม UC11 ข้อ 11
+      process_method: method, // เก็บ method เพิ่มเติม
+      weight_kg: amount, // ใช้ field เดียวกับระบบเดิม
+      count: null, // ไม่เกี่ยวกับจำนวนผลในกรณีแปรรูป
       note: form.note?.trim() || "",
       harvest_at: new Date().toISOString(), // ใช้เป็น date ปัจจุบัน (UC11 ข้อ 9)
     };
@@ -102,9 +120,18 @@ export default function OwnerProcessing() {
   };
 
   return (
-    <div className={`min-h-screen w-full bg-slate-50 text-slate-900 flex flex-col md:flex-row ${isSidebarOpen ? "overflow-hidden md:overflow-auto" : ""}`}>
+    <div
+      className={`min-h-screen w-full bg-slate-50 text-slate-900 flex flex-col md:flex-row ${
+        isSidebarOpen ? "overflow-hidden md:overflow-auto" : ""
+      }`}
+    >
       <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
-      {isSidebarOpen && <div className="fixed inset-0 bg-black/40 z-40 md:hidden" onClick={() => setIsSidebarOpen(false)} />}
+      {isSidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/40 z-40 md:hidden"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
 
       <div className="flex-1 min-w-0 flex flex-col">
         <HeaderWrapper
@@ -115,7 +142,6 @@ export default function OwnerProcessing() {
 
         <main className="p-4 sm:p-6 pt-28">
           <div className="max-w-3xl mx-auto space-y-4">
-
             {/* ปริมาณตกเกรดคงเหลือ */}
             <Card>
               {err ? (
@@ -123,8 +149,12 @@ export default function OwnerProcessing() {
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <div className="text-slate-500 text-sm">ทุเรียนตกเกรดคงเหลือ (กก.)</div>
-                    <div className="text-2xl font-semibold">{downgradedStock.toLocaleString()}</div>
+                    <div className="text-slate-500 text-sm">
+                      ทุเรียนตกเกรดคงเหลือ (กก.)
+                    </div>
+                    <div className="text-2xl font-semibold">
+                      {downgradedStock.toLocaleString()}
+                    </div>
                   </div>
                 </div>
               )}
@@ -132,9 +162,14 @@ export default function OwnerProcessing() {
 
             {/* ฟอร์ม UC11 */}
             <Card>
-              <form onSubmit={submit} className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <form
+                onSubmit={submit}
+                className="grid grid-cols-1 md:grid-cols-2 gap-3"
+              >
                 <div className="md:col-span-2">
-                  <label className="block text-sm text-slate-600 mb-1">วิธีการแปรรูป</label>
+                  <label className="block text-sm text-slate-600 mb-1">
+                    วิธีการแปรรูป
+                  </label>
                   <select
                     value={form.method}
                     onChange={onChange("method")}
@@ -176,7 +211,9 @@ export default function OwnerProcessing() {
 
             {/* บันทึกล่าสุด (ตัวอย่างตารางสั้น ๆ เพื่อความโปร่งใส) */}
             <Card>
-              <div className="text-sm text-slate-600 mb-2">รายการแปรรูปล่าสุด</div>
+              <div className="text-sm text-slate-600 mb-2">
+                รายการแปรรูปล่าสุด
+              </div>
               <div className="overflow-x-auto rounded-lg border bg-white shadow-sm">
                 <table className="min-w-full text-sm">
                   <thead>
@@ -189,16 +226,31 @@ export default function OwnerProcessing() {
                   </thead>
                   <tbody>
                     {rows
-                      .filter(r => r?.type === "แปรรูป")
-                      .sort((a, b) => new Date(b.harvest_at) - new Date(a.harvest_at))
+                      .filter((r) => r?.type === "แปรรูป")
+                      .sort(
+                        (a, b) =>
+                          new Date(b.harvest_at) - new Date(a.harvest_at)
+                      )
                       .slice(0, 10)
                       .map((r, i) => (
-                        <tr key={r.id} className={i % 2 === 0 ? "bg-white" : "bg-slate-50/60"}>
+                        <tr
+                          key={r.id}
+                          className={
+                            i % 2 === 0 ? "bg-white" : "bg-slate-50/60"
+                          }
+                        >
                           <td className="py-2 px-3">
-                            {new Date(r.harvest_at).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" })}
+                            {new Date(r.harvest_at).toLocaleString("th-TH", {
+                              dateStyle: "medium",
+                              timeStyle: "short",
+                            })}
                           </td>
-                          <td className="py-2 px-3">{r.process_method || "-"}</td>
-                          <td className="py-2 px-3">{Number(r.weight_kg || 0).toLocaleString()}</td>
+                          <td className="py-2 px-3">
+                            {r.process_method || "-"}
+                          </td>
+                          <td className="py-2 px-3">
+                            {Number(r.weight_kg || 0).toLocaleString()}
+                          </td>
                           <td className="py-2 px-3">{r.note || "-"}</td>
                         </tr>
                       ))}
@@ -206,7 +258,6 @@ export default function OwnerProcessing() {
                 </table>
               </div>
             </Card>
-
           </div>
         </main>
       </div>

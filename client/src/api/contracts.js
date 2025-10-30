@@ -3,6 +3,7 @@
 
 const CONTRACTS_KEY = "mm:contracts@v1";
 const BROKER_APPROVAL_KEY = "mm:broker-approvals@v1";
+const OWNER_DEADLINE_KEY = "mm:owner-deadline@v1";
 
 // ---------- utils ----------
 function load(key, fallback) {
@@ -18,7 +19,6 @@ function save(key, data) {
 }
 function uuid() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
-  // fallback
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
     const r = (Math.random() * 16) | 0,
       v = c === "x" ? r : (r & 0x3) | 0x8;
@@ -28,8 +28,21 @@ function uuid() {
 
 // ---------- owner settings ----------
 export async function getOwnerDeadline() {
-  const sevenDays = 7 * 24 * 60 * 60 * 1000;
-  return { current_deadline_date: new Date(Date.now() + sevenDays).toISOString() };
+  let iso = load(OWNER_DEADLINE_KEY, null);
+  if (!iso) {
+    const sevenDays = 7 * 24 * 60 * 60 * 1000;
+    iso = new Date(Date.now() + sevenDays).toISOString();
+    save(OWNER_DEADLINE_KEY, iso);
+  }
+  return { current_deadline_date: iso };
+}
+
+export async function setOwnerDeadline(newISO) {
+  if (!newISO) throw new Error("ต้องระบุวันที่ปิดรับข้อเสนอ");
+  const d = new Date(newISO);
+  if (isNaN(d.getTime())) throw new Error("รูปแบบวันที่ไม่ถูกต้อง");
+  save(OWNER_DEADLINE_KEY, d.toISOString());
+  return { current_deadline_date: d.toISOString() };
 }
 
 // ---------- broker submission context (mock) ----------
@@ -50,29 +63,51 @@ export async function createContract({
   broker_id,
   owner_id = 1,
   qtt_estimate,
-  offerprice,
+  offerprice_by_grade, // ต้องเป็น {A,B,C}
   payment_term,
   note,
 }) {
+  const qty = Number(qtt_estimate);
+  if (!Number.isFinite(qty) || qty <= 0) {
+    throw new Error("ปริมาณต้องเป็นตัวเลขบวก");
+  }
+
+  if (!offerprice_by_grade || typeof offerprice_by_grade !== "object") {
+    throw new Error("ต้องระบุราคาตามเกรด (A,B,C)");
+  }
+
+  const A = Number(offerprice_by_grade.A);
+  const B = Number(offerprice_by_grade.B);
+  const C = Number(offerprice_by_grade.C);
+  if (![A, B, C].every((n) => Number.isFinite(n) && n > 0)) {
+    throw new Error("ราคาตามเกรด A,B,C ต้องเป็นตัวเลขบวกทั้งหมด");
+  }
+
   const now = new Date().toISOString();
   const all = load(CONTRACTS_KEY, []) || [];
+
   const row = {
     contract_id: uuid(),
     broker_id,
     owner_id,
-    status: "รอการพิจารณา", // สำคัญ: ให้ Owner เห็นในหน้า offers
+    status: "รอการพิจารณา",
     contract_date: now,
-    contract_deadline: null, // ไว้ผูกกับรอบถ้ามี
-    qtt_estimate: Number(qtt_estimate),
-    offerprice: Number(offerprice),
+    contract_deadline: null,
+    qtt_estimate: qty,
+    offerprice_by_grade: { A, B, C },
+    offerprice: A, // ใช้ A เป็นตัวแทนราคาหลัก (เช่น sorting)
     payment_term: String(payment_term || ""),
     note: String(note || ""),
   };
+
   all.push(row);
   save(CONTRACTS_KEY, all);
   return row;
 }
 
+// ────────────────────────────────
+// List / Filter / Approve / Reject
+// ────────────────────────────────
 export async function listAllContracts() {
   const all = load(CONTRACTS_KEY, []) || [];
   return all.sort((a, b) => new Date(b.contract_date) - new Date(a.contract_date));
@@ -83,13 +118,23 @@ export async function listBrokerContracts(broker_id) {
   return all.filter((c) => String(c.broker_id) === String(broker_id));
 }
 
+// ✅ Owner อนุมัติแบบ "exclusive" (อนุมัติได้ทีละ 1)
 export async function approveContract(contract_id) {
   const all = load(CONTRACTS_KEY, []) || [];
   const i = all.findIndex((c) => c.contract_id === contract_id);
   if (i === -1) throw new Error("ไม่พบข้อเสนอ");
+
+  // ยกเลิกการยอมรับอื่น ๆ ทั้งหมดก่อน
+  for (let j = 0; j < all.length; j++) {
+    if (all[j].status === "ยอมรับ") {
+      all[j].status = "รอการพิจารณา";
+    }
+  }
+
+  // ยอมรับข้อเสนอที่เลือก
   all[i].status = "ยอมรับ";
   save(CONTRACTS_KEY, all);
-  // ตัวอย่าง: เมื่อ owner อนุมัติข้อเสนอแรกของ broker → mark approved
+
   if (all[i]?.broker_id != null) {
     setBrokerApproval(all[i].broker_id, "approved");
   }
@@ -105,24 +150,15 @@ export async function rejectContract(contract_id) {
   return all[i];
 }
 
-// บังคับ 1 ข้อเสนอ active ต่อรอบ (active = รอการพิจารณา | ยอมรับ)
-export function hasActiveOfferForCycle({ broker_id, cycle_deadline }) {
-  const all = load(CONTRACTS_KEY, []) || [];
-  const active = new Set(["รอการพิจารณา", "ยอมรับ"]);
-  return all.some((c) => {
-    if (String(c.broker_id) !== String(broker_id)) return false;
-    const sameCycle =
-      !cycle_deadline ||
-      !c.contract_deadline ||
-      new Date(c.contract_deadline).getTime() === new Date(cycle_deadline).getTime();
-    return sameCycle && active.has(c.status);
-  });
+// ✅ อนุญาตให้ broker ยื่นได้หลายรอบ (ปิดการตรวจ active)
+export function hasActiveOfferForCycle() {
+  return false;
 }
 
-// ---------- broker approval (LocalStorage) ----------
+// ---------- broker approval ----------
 export function setBrokerApproval(broker_id, status) {
   const map = load(BROKER_APPROVAL_KEY, {}) || {};
-  map[String(broker_id)] = status; // "approved" | "pending" | "rejected" (ถ้าต้องการ)
+  map[String(broker_id)] = status;
   save(BROKER_APPROVAL_KEY, map);
   return map[String(broker_id)];
 }
@@ -132,5 +168,5 @@ export function getBrokerApproval(broker_id) {
   return map[String(broker_id)] || "pending";
 }
 
-// 🔁 alias รองรับโค้ดเดิมที่ import getBrokerApprovalStatus
+// 🔁 alias สำหรับโค้ดเดิม
 export const getBrokerApprovalStatus = getBrokerApproval;

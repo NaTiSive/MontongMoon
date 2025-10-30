@@ -1,74 +1,85 @@
 // src/api/fruits.js
 const KEY = "mm:fruits@v1";
 
-// เกรดตัวอย่าง (ปรับได้ตามจริง)
+// ✅ export รายชื่อเกรดมาตรฐาน (ให้ Owner/Broker ใช้ได้ทุกหน้า)
 export const GRADES = ["A", "B", "C", "ตกเกรด"];
 
+// ---------- utils ----------
 function load() {
-  return JSON.parse(localStorage.getItem(KEY) || "[]");
-}
-function save(data) {
-  localStorage.setItem(KEY, JSON.stringify(data));
-}
-
-export function listFruits() {
-  return load().sort((a, b) => new Date(b.harvest_at) - new Date(a.harvest_at));
+  try {
+    return JSON.parse(localStorage.getItem(KEY) || "[]");
+  } catch {
+    return [];
+  }
 }
 
-export function listFruitsByBroker(broker_id) {
-  return listFruits().filter((r) => r.broker_id === broker_id);
+function save(arr) {
+  localStorage.setItem(KEY, JSON.stringify(arr));
 }
 
-export function listFruitsByDateRange({ startISO, endISO }) {
-  const all = listFruits();
-  const s = startISO ? new Date(startISO).getTime() : null;
-  const e = endISO ? new Date(endISO).getTime() : null;
-  return all.filter((r) => {
-    const t = new Date(r.harvest_at).getTime();
-    if (s && t < s) return false;
-    if (e && t > e) return false;
-    return true;
+function uuid() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID)
+    return crypto.randomUUID();
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
   });
 }
 
-/**
- * สร้างบันทึกผลเก็บเกี่ยวแบบเป็น “ผล/เกรด”
- * @param {Object} payload
- * @param {string|number} payload.broker_id
- * @param {string} payload.tree_id
- * @param {string} payload.grade     - หนึ่งใน GRADES
- * @param {number} payload.weight_kg - น้ำหนักรวม (กก.)
- * @param {number} payload.count     - จำนวนผล
- * @param {string} [payload.note]    - หมายเหตุ
- * @param {string} [payload.harvest_at] - ISO datetime (ถ้าไม่ส่ง จะใช้เวลาปัจจุบัน)
- */
-export function createHarvestFruitRecord({
-  broker_id,
-  tree_id,
-  grade,
-  weight_kg,
-  count,
-  note = "",
-  harvest_at,
-}) {
-  if (!GRADES.includes(grade)) throw new Error("เกรดไม่ถูกต้อง");
-  const w = Number(weight_kg);
-  const c = Number(count);
-  if (!Number.isFinite(w) || w <= 0) throw new Error("น้ำหนัก (กก.) ต้องเป็นตัวเลขบวก");
-  if (!Number.isFinite(c) || c <= 0) throw new Error("จำนวนผล ต้องเป็นตัวเลขบวก");
+// ---------- CRUD ----------
 
-  const rows = load();
+// ✅ บันทึกผลผลิต (type: เก็บเกี่ยว)
+export function createHarvestFruitRecord(payload) {
+  const { broker_id, grade, weight_kg, note } = payload || {};
+  const w = Number(weight_kg);
+  if (!grade || !GRADES.includes(grade)) throw new Error("เกรดไม่ถูกต้อง");
+  if (!w || w <= 0) throw new Error("น้ำหนักต้องมากกว่า 0");
+
   const rec = {
-    id: crypto.randomUUID(),
-    broker_id,
-    tree_id,
+    id: uuid(),
+    broker_id: broker_id ?? null,
     grade,
     weight_kg: w,
-    count: c,
-    note: String(note || ""),
-    harvest_at: harvest_at || new Date().toISOString(),
+    note: note || "",
+    harvest_at: new Date().toISOString(),
+    type: "เก็บเกี่ยว", // ✅ แยกชนิดเก็บเกี่ยวกับส่งออก
   };
-  rows.push(rec);
-  save(rows);
+
+  const all = load();
+  all.unshift(rec);
+  save(all);
   return rec;
+}
+
+// ✅ ดึงทั้งหมด
+export function listFruits() {
+  return load();
+}
+
+// ✅ ดึงเฉพาะเก็บเกี่ยว
+export function listHarvestOnly() {
+  return load().filter((r) => r.type !== "ส่งออก");
+}
+
+// ✅ ดึงเฉพาะ broker ที่เก็บเกี่ยว
+export function listFruitsByBrokerHarvestOnly(broker_id) {
+  return load().filter(
+    (r) => String(r.broker_id) === String(broker_id) && r.type !== "ส่งออก"
+  );
+}
+
+// ✅ ดึงเฉพาะช่วงเวลา (เก็บเกี่ยวเท่านั้น)
+export function listFruitsByDateRangeHarvestOnly({ startISO, endISO } = {}) {
+  let list = load().filter((r) => r.type !== "ส่งออก");
+  if (startISO)
+    list = list.filter((x) => new Date(x.harvest_at) >= new Date(startISO));
+  if (endISO)
+    list = list.filter((x) => new Date(x.harvest_at) <= new Date(endISO));
+  return list;
+}
+
+// ✅ ฟังก์ชันอื่น ๆ (ใช้ได้กับทั้งเก็บเกี่ยวและส่งออก)
+export function listFruitsByBroker(broker_id) {
+  return load().filter((x) => String(x.broker_id) === String(broker_id));
 }
