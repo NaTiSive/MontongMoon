@@ -29,9 +29,11 @@ export default function OwnerActivities() {
     (async () => {
       try {
         setLoading(true);
-        seedTreesIfEmpty();
-        const acts = listActivitiesForOwner();
-        const t = listTrees();
+        await seedTreesIfEmpty();
+        const [acts, t] = await Promise.all([
+          listActivitiesForOwner(),
+          listTrees(),
+        ]);
         if (!alive) return;
         setRows(
           acts.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))

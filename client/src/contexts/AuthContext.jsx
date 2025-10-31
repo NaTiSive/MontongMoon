@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { getBrokerApproval } from "../api/contracts";
+import { fetchCurrentUser, login as apiLogin, logout as apiLogout } from "../api/auth";
+import { getStoredAuth, setStoredAuth } from "../api/http";
 
 const AuthCtx = createContext(null);
 
@@ -8,65 +10,54 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true); // ✅ รอโหลดข้อมูลก่อน
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem("user");
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed && parsed.email) setUser(parsed);
+    let alive = true;
+    (async () => {
+      try {
+        const current = await fetchCurrentUser();
+        if (!alive) return;
+        setUser(current);
+      } finally {
+        if (alive) setLoading(false);
       }
-    } catch (err) {
-      console.error("Error reading user:", err);
-      localStorage.removeItem("user");
-    } finally {
-      setLoading(false);
-    }
+    })();
+    return () => {
+      alive = false;
+    };
   }, []);
 
-  // ✅ login & save user
-  const login = async (userObj) => {
-    setUser(userObj);
-    localStorage.setItem("user", JSON.stringify(userObj));
+  // ✅ login & save user/token
+  const login = async (credentials) => {
+    const data = await apiLogin(credentials);
+    setUser(data.user);
+    return data.user;
   };
 
   // ✅ update user profile
-// src/contexts/AuthContext.jsx (เฉพาะส่วนฟังก์ชัน updateUser)
-const updateUser = (newData) => {
-  setUser((prev) => {
-    if (!prev) return prev;
-    const updated = { ...prev, ...newData };
-
-    // ✅ เขียนกลับ localStorage user ปัจจุบัน
-    localStorage.setItem("mm:user@v1", JSON.stringify(updated));
-
-    // ✅ ถ้าเป็น broker → อัปเดตใน mm:brokers@v1 ด้วย
-    if (updated.role === "broker" && updated.broker_id != null) {
-      try {
-        const arr = JSON.parse(localStorage.getItem("mm:brokers@v1") || "[]");
-        const i = arr.findIndex((b) => b.broker_id === updated.broker_id);
-        if (i !== -1) {
-          arr[i] = { ...arr[i], ...newData };
-          localStorage.setItem("mm:brokers@v1", JSON.stringify(arr));
-        }
-      } catch (e) {
-        console.warn("updateUser broker save failed:", e);
+  const updateUser = (newData) => {
+    setUser((prev) => {
+      if (!prev) return prev;
+      const updated = { ...prev, ...newData };
+      const auth = getStoredAuth();
+      if (auth) {
+        setStoredAuth({ ...auth, user: updated });
       }
-    }
-
-    return updated;
-  });
-};
+      return updated;
+    });
+  };
 
 
   // ✅ auto-sync broker approvalStatus (เมื่อโฟกัสหน้าต่าง หรือเป็นระยะ)
   useEffect(() => {
     if (user?.role !== "broker" || user?.broker_id == null) return;
     const sync = () => {
-      try {
-        const latest = getBrokerApproval(user.broker_id);
-        if (latest && latest !== user.approvalStatus) {
-          updateUser({ approvalStatus: latest });
-        }
-      } catch {}
+      (async () => {
+        try {
+          const latest = await getBrokerApproval(user.broker_id);
+          if (latest && latest !== user.approvalStatus) {
+            updateUser({ approvalStatus: latest });
+          }
+        } catch {}
+      })();
     };
     // sync เมื่อกลับมาโฟกัส + interval สั้น ๆ
     window.addEventListener("focus", sync);
@@ -82,7 +73,10 @@ const updateUser = (newData) => {
   const updateApproval = (status) => {
     setUser((prev) => {
       const updated = { ...prev, approvalStatus: status };
-      localStorage.setItem("user", JSON.stringify(updated));
+      const auth = getStoredAuth();
+      if (auth) {
+        setStoredAuth({ ...auth, user: updated });
+      }
       return updated;
     });
   };
@@ -90,7 +84,7 @@ const updateUser = (newData) => {
   // ✅ logout
   const logout = () => {
     setUser(null);
-    localStorage.removeItem("user");
+    apiLogout();
   };
 
   return (
