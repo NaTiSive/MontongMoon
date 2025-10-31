@@ -25,10 +25,11 @@ export default function BrokerTransaction() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
-  const reload = () => {
+  const reload = async () => {
     try {
-      const me = listBrokerTransactions(user?.broker_id);
+      const me = await listBrokerTransactions(user?.broker_id);
       setRows(me.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)));
+      setErr("");
     } catch (e) {
       setErr(e?.message || "โหลดข้อมูลไม่สำเร็จ");
     } finally {
@@ -99,7 +100,7 @@ export default function BrokerTransaction() {
         note: "",
         receipt: null,
       });
-      reload();
+      await reload();
       alert("บันทึกธุรกรรมสำเร็จ");
     } catch (e2) {
       alert(e2?.message || "บันทึกไม่สำเร็จ");
