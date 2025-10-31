@@ -4,7 +4,7 @@ import prisma from "../config/prisma.js";
 import { authenticate } from "../middleware/auth.js";
 import { comparePassword, hashPassword, signToken } from "../utils/auth.js";
 import { normalizeUserRecord } from "../utils/formatters.js";
-import { getBrokerApprovalStatus, setBrokerApprovalStatus } from "../utils/brokers.js";
+import { getBrokerApprovalStatus } from "../utils/brokers.js";
 
 const router = Router();
 
@@ -80,8 +80,6 @@ router.post("/signup", async (req, res) => {
       registrationDate: new Date(),
     },
   });
-  await setBrokerApprovalStatus(broker.brokerId, "pending");
-
   res.status(201).json({
     message: "สมัครสำเร็จ",
     user: normalizeUserRecord(broker, "broker", "pending"),

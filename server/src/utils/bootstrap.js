@@ -1,14 +1,5 @@
 import prisma from "../config/prisma.js";
 
-const CREATE_APPROVAL_TABLE_SQL = `
-  CREATE TABLE IF NOT EXISTS broker_approval (
-    broker_id VARCHAR(50) NOT NULL PRIMARY KEY,
-    status ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending',
-    updated_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
-    CONSTRAINT fk_broker_approval FOREIGN KEY (broker_id) REFERENCES broker(broker_id) ON DELETE CASCADE ON UPDATE CASCADE
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-`;
-
 const CREATE_EXPORT_REQUEST_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS export_request (
     id CHAR(36) NOT NULL PRIMARY KEY,
@@ -24,12 +15,7 @@ const CREATE_EXPORT_REQUEST_TABLE_SQL = `
 `;
 
 export default async function bootstrap() {
-  await ensureBrokerApprovalTable();
   await ensureExportRequestTable();
-}
-
-async function ensureBrokerApprovalTable() {
-  await prisma.$executeRawUnsafe(CREATE_APPROVAL_TABLE_SQL);
 }
 
 async function ensureExportRequestTable() {

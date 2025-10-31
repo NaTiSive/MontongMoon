@@ -45,14 +45,6 @@ export async function hasActiveOfferForCycle() {
   return res?.hasActive ?? false;
 }
 
-export async function setBrokerApproval(broker_id, status) {
-  const res = await request(`/contracts/approvals/${broker_id}`, {
-    method: "PATCH",
-    body: { status },
-  });
-  return res?.approvalStatus;
-}
-
 export async function getBrokerApproval(broker_id) {
   const res = await request(`/contracts/approvals/${broker_id}`);
   return res?.approvalStatus ?? "pending";

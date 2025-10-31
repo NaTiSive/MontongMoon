@@ -3,7 +3,7 @@ import { z } from "zod";
 import prisma from "../config/prisma.js";
 import { authenticate, requireRole } from "../middleware/auth.js";
 import { mapContract } from "../utils/formatters.js";
-import { getBrokerApprovalStatus, setBrokerApprovalStatus } from "../utils/brokers.js";
+import { getBrokerApprovalStatus } from "../utils/brokers.js";
 
 const router = Router();
 
@@ -128,11 +128,6 @@ router.post("/:id/approve", authenticate(), requireRole("owner"), async (req, re
     });
 
     await tx.contract.update({ where: { contractId: id }, data: { status: "accepted" } });
-    await tx.brokerApproval.upsert({
-      where: { brokerId: contract.brokerId },
-      update: { status: "approved" },
-      create: { brokerId: contract.brokerId, status: "approved" },
-    });
   });
 
   const updated = await prisma.contract.findUnique({ where: { contractId: id }, include: { prices: true } });
@@ -146,7 +141,6 @@ router.post("/:id/reject", authenticate(), requireRole("owner"), async (req, res
     data: { status: "rejected" },
     include: { prices: true },
   });
-  await setBrokerApprovalStatus(contract.brokerId, "rejected");
   res.json({ data: mapContract(contract) });
 });
 
@@ -155,20 +149,6 @@ router.get("/approvals/:brokerId", authenticate(), async (req, res) => {
   const broker = await prisma.broker.findUnique({ where: { brokerId } });
   if (!broker) return res.status(404).json({ message: "ไม่พบบัญชีผู้รับเหมา" });
   const status = await getBrokerApprovalStatus(brokerId);
-  res.json({ broker_id: brokerId, approvalStatus: status });
-});
-
-const approvalSchema = z.object({ status: z.enum(["pending", "approved", "rejected"]) });
-
-router.patch("/approvals/:brokerId", authenticate(), requireRole("owner"), async (req, res) => {
-  const brokerId = String(req.params.brokerId);
-  const parsed = approvalSchema.safeParse({ status: req.body.status || req.body.approvalStatus });
-  if (!parsed.success) {
-    return res.status(400).json({ message: "ข้อมูลไม่ถูกต้อง", details: parsed.error.flatten() });
-  }
-  const broker = await prisma.broker.findUnique({ where: { brokerId } });
-  if (!broker) return res.status(404).json({ message: "ไม่พบบัญชีผู้รับเหมา" });
-  const status = await setBrokerApprovalStatus(brokerId, parsed.data.status);
   res.json({ broker_id: brokerId, approvalStatus: status });
 });
 
