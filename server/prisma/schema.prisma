@@ -1,0 +1,179 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  owner
+  broker
+}
+
+enum ApprovalStatus {
+  pending
+  approved
+  rejected
+}
+
+enum FruitGrade {
+  A
+  B
+  C
+  ตกเกรด
+}
+
+enum FruitType {
+  เก็บเกี่ยว
+  ส่งออก
+  แปรรูป
+}
+
+enum TransactionType {
+  รายรับ
+  รายจ่าย
+}
+
+enum TransactionStatus {
+  รอการตรวจสอบ
+  อนุมัติ
+  ปฏิเสธ
+}
+
+enum ExportRequestStatus {
+  รอการยืนยันจากเจ้าของสวน
+  ยืนยันแล้ว
+  ปฏิเสธแล้ว
+  ผู้รับเหมาถอนคำขอ
+}
+
+enum ProblemStatus {
+  เปิดปัญหา
+  ระหว่างแก้ไข
+  แก้ไขแล้ว
+}
+
+enum ContractStatus {
+  รอการพิจารณา
+  ยอมรับ
+  ปฏิเสธ
+}
+
+model User {
+  id              Int                 @id @default(autoincrement())
+  email           String              @unique
+  passwordHash    String
+  role            Role
+  name            String
+  phone           String?
+  address         String?
+  approvalStatus  ApprovalStatus      @default(pending)
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  fruits          FruitRecord[]       @relation("FruitBroker")
+  activities      Activity[]
+  problems        Problem[]
+  brokerContracts Contract[]         @relation("ContractBroker")
+  ownerContracts  Contract[]         @relation("ContractOwner")
+  exportRequests  ExportRequest[]
+  transactions    AccountTransaction[]
+}
+
+model FruitRecord {
+  id            String      @id @default(uuid())
+  brokerId      Int?
+  broker        User?       @relation("FruitBroker", fields: [brokerId], references: [id])
+  grade         FruitGrade
+  type          FruitType
+  weightKg      Decimal     @db.Decimal(10, 2)
+  note          String?
+  processMethod String?
+  harvestAt     DateTime    @default(now())
+  createdAt     DateTime    @default(now())
+}
+
+model ExportRequest {
+  id        String              @id @default(uuid())
+  brokerId  Int
+  broker    User                @relation(fields: [brokerId], references: [id])
+  status    ExportRequestStatus @default(รอการยืนยันจากเจ้าของสวน)
+  gradeA    Decimal             @db.Decimal(10, 2) @default(0)
+  gradeB    Decimal             @db.Decimal(10, 2) @default(0)
+  gradeC    Decimal             @db.Decimal(10, 2) @default(0)
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+}
+
+model Contract {
+  id              String         @id @default(uuid())
+  brokerId        Int
+  broker          User           @relation("ContractBroker", fields: [brokerId], references: [id])
+  ownerId         Int
+  owner           User           @relation("ContractOwner", fields: [ownerId], references: [id])
+  status          ContractStatus @default(รอการพิจารณา)
+  contractDate    DateTime       @default(now())
+  contractDeadline DateTime?
+  qtyEstimate     Decimal        @db.Decimal(10, 2)
+  priceGradeA     Decimal        @db.Decimal(10, 2)
+  priceGradeB     Decimal        @db.Decimal(10, 2)
+  priceGradeC     Decimal        @db.Decimal(10, 2)
+  paymentTerm     String?
+  note            String?
+}
+
+model AccountTransaction {
+  id             String            @id @default(uuid())
+  brokerId       Int?
+  broker         User?             @relation(fields: [brokerId], references: [id])
+  type           TransactionType
+  amount         Decimal           @db.Decimal(14, 2)
+  paymentMethod  String
+  note           String?
+  invoiceRef     String?
+  receiptName    String?
+  receiptMime    String?
+  receiptDataUrl String?
+  status         TransactionStatus @default(รอการตรวจสอบ)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime?
+}
+
+model Activity {
+  id        String   @id @default(uuid())
+  brokerId  Int
+  broker    User     @relation(fields: [brokerId], references: [id])
+  treeId    String
+  type      String
+  note      String?
+  createdAt DateTime @default(now())
+}
+
+model Problem {
+  id         String        @id @default(uuid())
+  brokerId   Int
+  broker     User          @relation(fields: [brokerId], references: [id])
+  treeId     String?
+  type       String
+  noteBroker String?
+  ownerNote  String?
+  status     ProblemStatus @default(เปิดปัญหา)
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime?
+}
+
+model Tree {
+  id        String   @id
+  name      String
+  status    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model OwnerSetting {
+  id                 Int      @id
+  submissionDeadline DateTime
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
