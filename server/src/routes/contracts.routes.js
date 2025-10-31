@@ -18,7 +18,9 @@ router.get("/deadline", authenticate(), async (req, res) => {
 const deadlineSchema = z.object({ deadline: z.string().datetime() });
 
 router.put("/deadline", authenticate(), requireRole("owner"), async (req, res) => {
-  const parsed = deadlineSchema.safeParse({ deadline: req.body.deadline || req.body.current_deadline_date });
+  const parsed = deadlineSchema.safeParse({
+    deadline: req.body.deadline || req.body.current_deadline_date,
+  });
   if (!parsed.success) {
     return res.status(400).json({ message: "รูปแบบวันที่ไม่ถูกต้อง", details: parsed.error.flatten() });
   }
@@ -78,7 +80,9 @@ router.post("/", authenticate(), requireRole("broker"), async (req, res) => {
       brokerId: req.user.id,
       ownerId: owner.ownerId,
       qtyEstimate: parsed.data.qtt_estimate,
-      paymentTerm: parsed.data.payment_term ? PAYMENT_TERM_INPUT[parsed.data.payment_term] : "bankTransfer",
+      paymentTerm: parsed.data.payment_term
+        ? PAYMENT_TERM_INPUT[parsed.data.payment_term]
+        : "bankTransfer",
       note: parsed.data.note || "",
       status: "pending",
       contractDate: new Date(),
@@ -118,19 +122,49 @@ router.get("/", authenticate(), async (req, res) => {
 router.post("/:id/approve", authenticate(), requireRole("owner"), async (req, res) => {
   const { id } = req.params;
 
-  const contract = await prisma.contract.findUnique({ where: { contractId: id }, include: { prices: true } });
-  if (!contract) return res.status(404).json({ message: "ไม่พบข้อเสนอ" });
+  const target = await prisma.contract.findUnique({
+    where: { contractId: id },
+    include: { prices: true },
+  });
+  if (!target) return res.status(404).json({ message: "ไม่พบข้อเสนอ" });
 
   await prisma.$transaction(async (tx) => {
+    // 1) reset accepted เดิมของ owner คนนี้
     await tx.contract.updateMany({
-      where: { status: "accepted", contractId: { not: id } },
+      where: { ownerId: target.ownerId, status: "accepted", contractId: { not: id } },
       data: { status: "pending" },
     });
 
-    await tx.contract.update({ where: { contractId: id }, data: { status: "accepted" } });
+    // 2) ตั้งสัญญาปัจจุบันเป็น accepted
+    await tx.contract.update({
+      where: { contractId: id },
+      data: { status: "accepted" },
+    });
+
+    // 3) อัปเดต broker ของ "ทุกต้น" ของ owner
+    await tx.durianTree.updateMany({
+      where: { ownerId: target.ownerId },
+      data: { brokerId: target.brokerId },
+    });
+
+    // 4) อัปเดต broker ของ "ผลผลิตทั้งหมด" ของ owner (ไม่สนใจวันที่/ค่าเดิม)
+    //    จุดนี้คือสิ่งที่ทำให้เห็นผลแน่นอนว่าทุกเรคคอร์ดถูกย้ายไปหา broker ใหม่
+    await tx.durianFruit.updateMany({
+      where: { ownerId: target.ownerId },
+      data: { brokerId: target.brokerId },
+    });
+
+    // (ถ้าต้องการให้เฉพาะผลผลิตอนาคต ให้ใช้เงื่อนไข date >= target.contractDate แทนบรรทัดบน)
+    // await tx.durianFruit.updateMany({
+    //   where: { ownerId: target.ownerId, date: { gte: target.contractDate } },
+    //   data: { brokerId: target.brokerId },
+    // });
   });
 
-  const updated = await prisma.contract.findUnique({ where: { contractId: id }, include: { prices: true } });
+  const updated = await prisma.contract.findUnique({
+    where: { contractId: id },
+    include: { prices: true },
+  });
   res.json({ data: mapContract(updated) });
 });
 
@@ -172,7 +206,10 @@ router.get("/has-active-offer", authenticate(), async (req, res) => {
 });
 
 async function generateContractId() {
-  const last = await prisma.contract.findMany({ orderBy: { contractId: "desc" }, take: 1 });
+  const last = await prisma.contract.findMany({
+    orderBy: { contractId: "desc" },
+    take: 1,
+  });
   if (!last.length) return "C001";
   const current = last[0].contractId;
   const numeric = parseInt(current.replace(/^C/, ""), 10) || 0;

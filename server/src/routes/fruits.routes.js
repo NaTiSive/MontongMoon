@@ -12,21 +12,21 @@ import { sumHarvestByGrade } from "../utils/fruits.js";
 
 const router = Router();
 
-// label ไทย -> enum Prisma (ซึ่ง map เป็นไทยใน DB แล้ว)
+/**
+ * แผนที่ type ที่รับค่าภาษาไทยจาก UI → enum ของ Prisma
+ */
 const FRUIT_TYPE_INPUT = {
   "เก็บเกี่ยว": FruitFlowType.harvest,
   "ขนส่งออก": FruitFlowType.export,
 };
 
-// label กระบวนการ (ไทย) -> enum Prisma
 const PROCESS_METHOD_INPUT = Object.fromEntries(
-  Object.entries(FRUIT_PROCESS_METHOD_LABELS) // { fry:"ทอด", freeze:"แช่แข็ง", ... }
+  Object.entries(FRUIT_PROCESS_METHOD_LABELS)
     .map(([code, label]) => [label, FruitFlowType[code]])
-    .filter(([, val]) => !!val)
+    .filter(([, value]) => Boolean(value))
 );
 
-// รายการ enum กระบวนการ (อังกฤษ) -> Prisma enum list
-const PROCESS_TYPE_VALUES = FRUIT_PROCESS_TYPE_CODES // ["fry","freeze","jam","dry","other"]
+const PROCESS_TYPE_VALUES = FRUIT_PROCESS_TYPE_CODES
   .map((code) => FruitFlowType[code])
   .filter(Boolean);
 
@@ -37,20 +37,19 @@ const FRUIT_GRADE_INPUT = {
   "ตกเกรด": "fallen",
 };
 
-function getBrokerIdFromUser(user) {
-  if (!user) return null;
-  return user.broker_id || user.id || null;
-}
-
-// GET /api/fruits
+/**
+ * ดึงรายการผลผลิตทั้งหมด (รองรับ filter: broker, type)
+ */
 router.get("/", authenticate(), async (req, res) => {
   const { broker_id: brokerIdParam, type } = req.query;
   const where = {};
 
-  if (req.user?.role === "broker") {
-    where.brokerId = getBrokerIdFromUser(req.user);
+  if (req.user.role === "broker") {
+    where.brokerId = req.user.id;
   }
-  if (brokerIdParam) where.brokerId = String(brokerIdParam);
+  if (brokerIdParam) {
+    where.brokerId = String(brokerIdParam);
+  }
 
   if (type) {
     if (type === "แปรรูป") {
@@ -70,24 +69,34 @@ router.get("/", authenticate(), async (req, res) => {
   res.json({ data: fruits.map(mapFruit) });
 });
 
-// GET /api/fruits/harvest
+/**
+ * ดึงรายการ “เก็บเกี่ยว” (รองรับช่วงวันที่ และ tree/broker)
+ */
 router.get("/harvest", authenticate(), async (req, res) => {
   const { broker_id: brokerIdParam, tree_id: treeIdParam, start, end } = req.query;
   const where = { type: FruitFlowType.harvest };
 
-  if (req.user?.role === "broker") {
-    where.brokerId = getBrokerIdFromUser(req.user);
+  if (req.user.role === "broker") {
+    where.brokerId = req.user.id;
   }
-  if (brokerIdParam) where.brokerId = String(brokerIdParam);
-  if (treeIdParam) where.treeId = String(treeIdParam);
+  if (brokerIdParam) {
+    where.brokerId = String(brokerIdParam);
+  }
+  if (treeIdParam) {
+    where.treeId = String(treeIdParam);
+  }
 
   if (start) {
-    const d = new Date(start);
-    if (!Number.isNaN(d.getTime())) where.date = { ...(where.date || {}), gte: d };
+    const startDate = new Date(start);
+    if (!Number.isNaN(startDate.getTime())) {
+      where.date = { ...(where.date || {}), gte: startDate };
+    }
   }
   if (end) {
-    const d = new Date(end);
-    if (!Number.isNaN(d.getTime())) where.date = { ...(where.date || {}), lte: d };
+    const endDate = new Date(end);
+    if (!Number.isNaN(endDate.getTime())) {
+      where.date = { ...(where.date || {}), lte: endDate };
+    }
   }
 
   const fruits = await prisma.durianFruit.findMany({
@@ -98,27 +107,39 @@ router.get("/harvest", authenticate(), async (req, res) => {
   res.json({ data: fruits.map(mapFruit) });
 });
 
-// GET /api/fruits/harvest/summary
+/**
+ * สรุปรวม “เก็บเกี่ยว” ตามเกรด (A/B/C) พร้อม filter
+ */
 router.get("/harvest/summary", authenticate(), async (req, res) => {
   const { broker_id: brokerIdParam, tree_id: treeIdParam, start, end } = req.query;
 
   let brokerId = null;
-  if (req.user?.role === "broker") brokerId = getBrokerIdFromUser(req.user);
-  if (brokerIdParam) brokerId = String(brokerIdParam);
+  if (req.user.role === "broker") {
+    brokerId = req.user.id;
+  }
+  if (brokerIdParam) {
+    brokerId = String(brokerIdParam);
+  }
 
-  const treeId = treeIdParam ? String(treeIdParam) : null;
-  const ownerId = req.user?.role === "owner" ? req.user.id : null;
+  let treeId = null;
+  if (treeIdParam) {
+    treeId = String(treeIdParam);
+  }
 
   let startDate;
   if (start) {
-    const d = new Date(start);
-    if (!Number.isNaN(d.getTime())) startDate = d;
+    const parsed = new Date(start);
+    if (!Number.isNaN(parsed.getTime())) startDate = parsed;
   }
+
   let endDate;
   if (end) {
-    const d = new Date(end);
-    if (!Number.isNaN(d.getTime())) endDate = d;
+    const parsed = new Date(end);
+    if (!Number.isNaN(parsed.getTime())) endDate = parsed;
   }
+
+  // ownerId: ให้ผูกกับผู้ใช้งานจริง (ปัจจุบันระบบ single-owner = 1)
+  const ownerId = req.user.role === "owner" ? req.user.id : 1;
 
   const summary = await sumHarvestByGrade({
     brokerId,
@@ -126,12 +147,16 @@ router.get("/harvest/summary", authenticate(), async (req, res) => {
     treeId,
     start: startDate,
     end: endDate,
-    // ภายใน util ควรกำหนด where.type = FruitFlowType.harvest ด้วย
   });
 
   res.json({ summary });
 });
 
+/**
+ * สร้างรายการเก็บเกี่ยวใหม่
+ * - ถ้า Broker เป็นคนบันทึก → ใช้ brokerId ผู้ล็อกอิน
+ * - ถ้า Owner เป็นคนบันทึก → ผูก brokerId กับสัญญาที่ “ยอมรับ” ล่าสุดอัตโนมัติ
+ */
 const harvestSchema = z.object({
   tree_id: z.string().min(1),
   grade: z.enum(["A", "B", "C", "ตกเกรด"]),
@@ -139,7 +164,6 @@ const harvestSchema = z.object({
   date: z.string().datetime().optional(),
 });
 
-// POST /api/fruits/harvest
 router.post("/harvest", authenticate(), requireRole("broker", "owner"), async (req, res) => {
   const parsed = harvestSchema.safeParse({
     tree_id: req.body.tree_id,
@@ -152,20 +176,25 @@ router.post("/harvest", authenticate(), requireRole("broker", "owner"), async (r
   }
 
   const { tree_id, grade, weight_kg, date } = parsed.data;
-  const brokerId =
-    req.user?.role === "broker"
-      ? getBrokerIdFromUser(req.user)
-      : req.body.broker_id
-      ? String(req.body.broker_id)
-      : null;
+  const ownerId = 1; // ระบบตอนนี้มี owner คนเดียว
+
+  let brokerId = null;
+  if (req.user.role === "broker") {
+    brokerId = req.user.id;
+  } else {
+    brokerId = await getAcceptedBrokerId(ownerId);
+    if (!brokerId) {
+      return res.status(409).json({ message: "ยังไม่มีโบรกเกอร์ที่ถูกยอมรับในขณะนี้" });
+    }
+  }
 
   const record = await prisma.durianFruit.create({
     data: {
       fruitId: await generateFruitId(),
       treeId: tree_id,
-      ownerId: 1,
+      ownerId,
       brokerId,
-      grade: FRUIT_GRADE_INPUT[grade], // "A"|"B"|"C"|"fallen"
+      grade: FRUIT_GRADE_INPUT[grade],
       amount: weight_kg,
       type: FruitFlowType.harvest,
       date: date ? new Date(date) : new Date(),
@@ -175,14 +204,31 @@ router.post("/harvest", authenticate(), requireRole("broker", "owner"), async (r
   res.status(201).json({ data: mapFruit(record) });
 });
 
+/**
+ * Helper: หา broker ที่สัญญาถูก accepted ล่าสุดของ owner
+ */
+async function getAcceptedBrokerId(ownerId = 1) {
+  const c = await prisma.contract.findFirst({
+    where: { ownerId, status: "accepted" },
+    orderBy: { contractDate: "desc" },
+    select: { brokerId: true },
+  });
+  return c?.brokerId ?? null;
+}
+
+/**
+ * Helper: สร้าง fruit_id ใหม่แบบรันนิ่ง
+ */
 async function generateFruitId() {
   const last = await prisma.durianFruit.findMany({
     orderBy: { fruitId: "desc" },
     take: 1,
   });
   if (!last.length) return "F001";
-  const numeric = parseInt(String(last[0].fruitId).replace(/^F/, ""), 10) || 0;
-  return `F${String(numeric + 1).padStart(3, "0")}`;
+  const current = last[0].fruitId;
+  const numeric = parseInt(current.replace(/^F/, ""), 10) || 0;
+  const next = numeric + 1;
+  return `F${next.toString().padStart(3, "0")}`;
 }
 
 export default router;
