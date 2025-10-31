@@ -1,5 +1,5 @@
 // src/pages/owner/OwnerProcessing.jsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import Sidebar from "../../components/Sidebar";
 import HeaderWrapper from "../../components/HeaderWrapper";
 import Card from "../../components/Card";
@@ -7,29 +7,8 @@ import PrimaryButton from "../../components/PrimaryButton";
 import InputField from "../../components/InputField";
 import { useAuth } from "../../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
-
-// ใช้ตรง LocalStorage เพื่อไม่แตะ fruits.js เดิม (แนวทาง B)
-const KEY = "mm:fruits@v1";
-
-function loadFruits() {
-  try {
-    return JSON.parse(localStorage.getItem(KEY) || "[]");
-  } catch {
-    return [];
-  }
-}
-function saveFruits(arr) {
-  localStorage.setItem(KEY, JSON.stringify(arr));
-}
-function uuid() {
-  if (typeof crypto !== "undefined" && crypto.randomUUID)
-    return crypto.randomUUID();
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0,
-      v = c === "x" ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
-}
+import { createProcessingRecord, getDowngradedStock } from "../../api/processing";
+import { listProcessedFruits } from "../../api/fruits";
 
 export default function OwnerProcessing() {
   const { user } = useAuth();
@@ -40,35 +19,39 @@ export default function OwnerProcessing() {
     if (!user || user.role !== "owner") navigate("/login");
   }, [user, navigate]);
 
-  const [rows, setRows] = useState([]);
   const [err, setErr] = useState("");
+  const [downgradedStock, setDowngradedStock] = useState(0);
+  const [loadingStock, setLoadingStock] = useState(true);
+  const [processedRows, setProcessedRows] = useState([]);
+  const [loadingProcessed, setLoadingProcessed] = useState(true);
 
   useEffect(() => {
-    try {
-      setRows(loadFruits());
-    } catch (e) {
-      setErr(e?.message || "โหลดข้อมูลไม่สำเร็จ");
-    }
+    let alive = true;
+    (async () => {
+      try {
+        setLoadingStock(true);
+        setLoadingProcessed(true);
+        const [stock, processed] = await Promise.all([
+          getDowngradedStock(),
+          listProcessedFruits(),
+        ]);
+        if (!alive) return;
+        setDowngradedStock(stock);
+        setProcessedRows(processed);
+        setErr("");
+      } catch (e) {
+        if (!alive) return;
+        setErr(e?.message || "โหลดข้อมูลไม่สำเร็จ");
+      } finally {
+        if (!alive) return;
+        setLoadingStock(false);
+        setLoadingProcessed(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
   }, []);
-
-  // ประมาณ “ตกเกรดคงเหลือ” = (sum grade=ตกเกรด) - (sum type=แปรรูป)
-  // ประมาณ “ตกเกรดคงเหลือ” = (sum grade=ตกเกรด เฉพาะที่ยังเป็นเก็บเกี่ยว) - (sum type=แปรรูป)
-  const downgradedStock = useMemo(() => {
-    // ฝั่ง "เก็บเกี่ยว" (ยังอยู่ในคลัง): กรองเฉพาะที่ไม่ใช่แปรรูป/ส่งออก
-    const totalDowngradedHarvest = rows
-      .filter(
-        (r) =>
-          r?.grade === "ตกเกรด" && r?.type !== "แปรรูป" && r?.type !== "ส่งออก"
-      )
-      .reduce((s, r) => s + Number(r?.weight_kg || 0), 0);
-
-    // ฝั่ง "ถูกใช้แปรรูปไปแล้ว"
-    const processed = rows
-      .filter((r) => r?.type === "แปรรูป")
-      .reduce((s, r) => s + Number(r?.weight_kg || 0), 0);
-
-    return Math.max(0, totalDowngradedHarvest - processed);
-  }, [rows]);
 
   // ฟอร์ม UC11
   const [form, setForm] = useState({
@@ -80,7 +63,25 @@ export default function OwnerProcessing() {
   const onChange = (k) => (e) =>
     setForm((p) => ({ ...p, [k]: e.target.value }));
 
-  const submit = (e) => {
+  const reloadData = async () => {
+    try {
+      setLoadingStock(true);
+      setLoadingProcessed(true);
+      const [stock, processed] = await Promise.all([
+        getDowngradedStock(),
+        listProcessedFruits(),
+      ]);
+      setDowngradedStock(stock);
+      setProcessedRows(processed);
+    } catch (e) {
+      setErr(e?.message || "โหลดข้อมูลไม่สำเร็จ");
+    } finally {
+      setLoadingStock(false);
+      setLoadingProcessed(false);
+    }
+  };
+
+  const submit = async (e) => {
     e.preventDefault();
     const method = (form.method || "").trim();
     const amount = Number(form.amountKg);
@@ -93,24 +94,14 @@ export default function OwnerProcessing() {
     if (amount > downgradedStock)
       return alert("ปริมาณเกินกว่าทุเรียนตกเกรดคงเหลือ");
 
-    // บันทึกตาม UC11 ข้อ 8–12: fruit_id ใหม่, date ปัจจุบัน, grade=ตกเกรด, type=แปรรูป
-    const rec = {
-      id: uuid(), // fruit_id
-      grade: "ตกเกรด", // คงตาม UC11 ข้อ 10
-      type: "แปรรูป", // ตาม UC11 ข้อ 11
-      process_method: method, // เก็บ method เพิ่มเติม
-      weight_kg: amount, // ใช้ field เดียวกับระบบเดิม
-      count: null, // ไม่เกี่ยวกับจำนวนผลในกรณีแปรรูป
-      note: form.note?.trim() || "",
-      harvest_at: new Date().toISOString(), // ใช้เป็น date ปัจจุบัน (UC11 ข้อ 9)
-    };
-
     try {
-      const all = loadFruits();
-      all.push(rec);
-      saveFruits(all);
-      setRows(all);
+      await createProcessingRecord({
+        method,
+        amountKg: amount,
+        note: form.note?.trim() || "",
+      });
       setForm({ method: "", amountKg: "", note: "" });
+      await reloadData();
       alert("บันทึกการแปรรูปสำเร็จ");
       // กลับ Dashboard ตาม UC11 ข้อ 15 (ถ้ายังไม่ต้อง redirect ให้คอมเมนต์บรรทัดล่างไว้ได้)
       // navigate("/owner/dashboard");
@@ -146,6 +137,8 @@ export default function OwnerProcessing() {
             <Card>
               {err ? (
                 <div className="text-rose-600 text-sm">{err}</div>
+              ) : loadingStock ? (
+                <div className="text-sm text-slate-500">กำลังโหลดข้อมูล…</div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
@@ -214,49 +207,55 @@ export default function OwnerProcessing() {
               <div className="text-sm text-slate-600 mb-2">
                 รายการแปรรูปล่าสุด
               </div>
-              <div className="overflow-x-auto rounded-lg border bg-white shadow-sm">
-                <table className="min-w-full text-sm">
-                  <thead>
-                    <tr className="text-left bg-slate-50 text-slate-600">
-                      <th className="py-2 px-3">วันที่</th>
-                      <th className="py-2 px-3">วิธี</th>
-                      <th className="py-2 px-3">ปริมาณ (กก.)</th>
-                      <th className="py-2 px-3">หมายเหตุ</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows
-                      .filter((r) => r?.type === "แปรรูป")
-                      .sort(
-                        (a, b) =>
-                          new Date(b.harvest_at) - new Date(a.harvest_at)
-                      )
-                      .slice(0, 10)
-                      .map((r, i) => (
-                        <tr
-                          key={r.id}
-                          className={
-                            i % 2 === 0 ? "bg-white" : "bg-slate-50/60"
-                          }
-                        >
-                          <td className="py-2 px-3">
-                            {new Date(r.harvest_at).toLocaleString("th-TH", {
-                              dateStyle: "medium",
-                              timeStyle: "short",
-                            })}
-                          </td>
-                          <td className="py-2 px-3">
-                            {r.process_method || "-"}
-                          </td>
-                          <td className="py-2 px-3">
-                            {Number(r.weight_kg || 0).toLocaleString()}
-                          </td>
-                          <td className="py-2 px-3">{r.note || "-"}</td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
-              </div>
+              {loadingProcessed ? (
+                <div className="text-sm text-slate-500">กำลังโหลดข้อมูล…</div>
+              ) : processedRows.length === 0 ? (
+                <div className="text-sm text-slate-500">ยังไม่มีรายการแปรรูป</div>
+              ) : (
+                <div className="overflow-x-auto rounded-lg border bg-white shadow-sm">
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className="text-left bg-slate-50 text-slate-600">
+                        <th className="py-2 px-3">วันที่</th>
+                        <th className="py-2 px-3">วิธี</th>
+                        <th className="py-2 px-3">ปริมาณ (กก.)</th>
+                        <th className="py-2 px-3">หมายเหตุ</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {processedRows
+                        .filter((r) => r?.type === "แปรรูป")
+                        .sort(
+                          (a, b) =>
+                            new Date(b.harvest_at) - new Date(a.harvest_at)
+                        )
+                        .slice(0, 10)
+                        .map((r, i) => (
+                          <tr
+                            key={r.id}
+                            className={
+                              i % 2 === 0 ? "bg-white" : "bg-slate-50/60"
+                            }
+                          >
+                            <td className="py-2 px-3">
+                              {new Date(r.harvest_at).toLocaleString("th-TH", {
+                                dateStyle: "medium",
+                                timeStyle: "short",
+                              })}
+                            </td>
+                            <td className="py-2 px-3">
+                              {r.process_method || "-"}
+                            </td>
+                            <td className="py-2 px-3">
+                              {Number(r.weight_kg || 0).toLocaleString()}
+                            </td>
+                            <td className="py-2 px-3">{r.note || "-"}</td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </Card>
           </div>
         </main>
