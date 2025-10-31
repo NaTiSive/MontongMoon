@@ -3,6 +3,7 @@ import { z } from "zod";
 import prisma from "../config/prisma.js";
 import { authenticate, requireRole } from "../middleware/auth.js";
 import { mapActivity } from "../utils/formatters.js";
+import { resolveOwnerIdForRequest } from "../utils/brokers.js";
 
 const router = Router();
 
@@ -20,7 +21,7 @@ const ACTIVITY_TYPE_INPUT = {
 };
 
 router.get("/", authenticate(), async (req, res) => {
-  const { broker_id: brokerIdParam } = req.query;
+  const { broker_id: brokerIdParam, owner_id: ownerIdParam } = req.query;
   const where = {};
 
   if (req.user.role === "broker") {
@@ -29,6 +30,11 @@ router.get("/", authenticate(), async (req, res) => {
 
   if (brokerIdParam) {
     where.brokerId = String(brokerIdParam);
+  }
+
+  const ownerId = await resolveOwnerIdForRequest(req.user, ownerIdParam);
+  if (ownerId !== null) {
+    where.ownerId = ownerId;
   }
 
   const activities = await prisma.activity.findMany({
@@ -59,12 +65,23 @@ router.post("/", authenticate(), requireRole("broker"), async (req, res) => {
     return res.status(400).json({ message: "ข้อมูลไม่ถูกต้อง", details: parsed.error.flatten() });
   }
 
+  const tree = await prisma.durianTree.findUnique({
+    where: { treeId: parsed.data.tree_id },
+    select: { ownerId: true, brokerId: true, treeId: true },
+  });
+  if (!tree) {
+    return res.status(404).json({ message: "ไม่พบต้นทุเรียนที่ระบุ" });
+  }
+  if (req.user.role === "broker" && tree.brokerId && tree.brokerId !== req.user.id) {
+    return res.status(403).json({ message: "ไม่สามารถบันทึกกิจกรรมให้ต้นนี้ได้" });
+  }
+
   const activity = await prisma.activity.create({
     data: {
       activityId: await generateActivityId(),
       brokerId: req.user.id,
-      ownerId: 1,
-      treeId: parsed.data.tree_id,
+      ownerId: Number(tree.ownerId),
+      treeId: tree.treeId,
       type: ACTIVITY_SCOPE_INPUT[parsed.data.type],
       activityType: ACTIVITY_TYPE_INPUT[parsed.data.activity_type],
       note: parsed.data.note || "",

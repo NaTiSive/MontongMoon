@@ -13,9 +13,11 @@ const PROCESS_METHOD_INPUT = Object.fromEntries(
 const PROCESS_TYPE_VALUES = Object.keys(FRUIT_PROCESS_METHOD_LABELS);
 
 router.get("/stock", authenticate(), requireRole("owner"), async (req, res) => {
+  const ownerId = Number(req.user.id);
   const downgradedHarvest = await prisma.durianFruit.aggregate({
     _sum: { amount: true },
     where: {
+      ownerId,
       grade: "fallen",
       NOT: { type: { in: [...PROCESS_TYPE_VALUES, "export"] } },
     },
@@ -23,7 +25,7 @@ router.get("/stock", authenticate(), requireRole("owner"), async (req, res) => {
 
   const processed = await prisma.durianFruit.aggregate({
     _sum: { amount: true },
-    where: { type: { in: PROCESS_TYPE_VALUES } },
+    where: { ownerId, type: { in: PROCESS_TYPE_VALUES } },
   });
 
   const available = Math.max(0, toNumberSafe(downgradedHarvest._sum.amount) - toNumberSafe(processed._sum.amount));
@@ -47,16 +49,19 @@ router.post("/", authenticate(), requireRole("owner"), async (req, res) => {
   }
 
   const { method, amountKg, tree_id } = parsed.data;
+  const ownerId = Number(req.user.id);
+
   const stockResp = await prisma.durianFruit.aggregate({
     _sum: { amount: true },
     where: {
+      ownerId,
       grade: "fallen",
       NOT: { type: { in: [...PROCESS_TYPE_VALUES, "export"] } },
     },
   });
   const processedResp = await prisma.durianFruit.aggregate({
     _sum: { amount: true },
-    where: { type: { in: PROCESS_TYPE_VALUES } },
+    where: { ownerId, type: { in: PROCESS_TYPE_VALUES } },
   });
 
   const available = Math.max(0, toNumberSafe(stockResp._sum.amount) - toNumberSafe(processedResp._sum.amount));
@@ -64,11 +69,29 @@ router.post("/", authenticate(), requireRole("owner"), async (req, res) => {
     return res.status(400).json({ message: "ปริมาณเกินกว่าทุเรียนตกเกรดคงเหลือ" });
   }
 
+  let targetTreeId = tree_id ? String(tree_id) : null;
+  if (targetTreeId) {
+    const tree = await prisma.durianTree.findUnique({
+      where: { treeId: targetTreeId },
+      select: { ownerId: true },
+    });
+    if (!tree || Number(tree.ownerId) !== ownerId) {
+      return res.status(403).json({ message: "ไม่สามารถเลือกต้นทุเรียนนี้ได้" });
+    }
+  } else {
+    const fallbackTree = await prisma.durianTree.findFirst({
+      where: { ownerId },
+      orderBy: { treeId: "asc" },
+      select: { treeId: true },
+    });
+    targetTreeId = fallbackTree?.treeId || null;
+  }
+
   const record = await prisma.durianFruit.create({
     data: {
       fruitId: await generateFruitId(),
-      treeId: tree_id || "T-001",
-      ownerId: 1,
+      treeId: targetTreeId,
+      ownerId,
       brokerId: null,
       grade: "fallen",
       amount: amountKg,

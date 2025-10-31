@@ -3,6 +3,7 @@ import { z } from "zod";
 import prisma from "../config/prisma.js";
 import { authenticate, requireRole } from "../middleware/auth.js";
 import { mapProblem } from "../utils/formatters.js";
+import { resolveOwnerIdForRequest } from "../utils/brokers.js";
 
 const router = Router();
 
@@ -18,9 +19,15 @@ const PROBLEM_STATUS = {
 };
 
 router.get("/", authenticate(), async (req, res) => {
+  const { owner_id: ownerIdParam } = req.query;
   const where = {};
   if (req.user.role === "broker") {
     where.brokerId = req.user.id;
+  }
+
+  const ownerId = await resolveOwnerIdForRequest(req.user, ownerIdParam);
+  if (ownerId !== null) {
+    where.ownerId = ownerId;
   }
 
   const problems = await prisma.problem.findMany({
@@ -47,12 +54,42 @@ router.post("/", authenticate(), requireRole("broker"), async (req, res) => {
     return res.status(400).json({ message: "ข้อมูลไม่ถูกต้อง", details: parsed.error.flatten() });
   }
 
+  let treeId = parsed.data.tree_id ? String(parsed.data.tree_id) : null;
+  let ownerId = null;
+
+  if (treeId) {
+    const tree = await prisma.durianTree.findUnique({
+      where: { treeId },
+      select: { ownerId: true, brokerId: true, treeId: true },
+    });
+    if (!tree) {
+      return res.status(404).json({ message: "ไม่พบต้นทุเรียนที่ระบุ" });
+    }
+    if (req.user.role === "broker" && tree.brokerId && tree.brokerId !== req.user.id) {
+      return res.status(403).json({ message: "ไม่สามารถรายงานปัญหาต้นนี้ได้" });
+    }
+    ownerId = Number(tree.ownerId);
+    treeId = tree.treeId;
+  } else {
+    ownerId = await resolveOwnerIdForRequest(req.user);
+    const fallbackTree = await prisma.durianTree.findFirst({
+      where: ownerId !== null ? { ownerId } : undefined,
+      orderBy: { treeId: "asc" },
+      select: { treeId: true, ownerId: true, brokerId: true },
+    });
+    if (!fallbackTree) {
+      return res.status(400).json({ message: "กรุณาระบุต้นทุเรียนที่ต้องการรายงาน" });
+    }
+    treeId = fallbackTree.treeId;
+    ownerId = Number(fallbackTree.ownerId);
+  }
+
   const problem = await prisma.problem.create({
     data: {
       problemId: await generateProblemId(),
       brokerId: req.user.id,
-      ownerId: 1,
-      treeId: parsed.data.tree_id || "T-001",
+      ownerId,
+      treeId,
       type: PROBLEM_SCOPE_INPUT[parsed.data.type],
       noteBroker: parsed.data.note_broker || "",
       status: PROBLEM_STATUS.open,

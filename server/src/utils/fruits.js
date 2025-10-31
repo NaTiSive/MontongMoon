@@ -20,6 +20,12 @@ function createEmptyGradeSummary() {
 
 const toNumber = (value) => toNumberSafe(value);
 
+function normalizeOwnerId(value) {
+  if (value === null || value === undefined) return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
 function buildDateFilter(start, end) {
   if (!start && !end) return undefined;
   const range = {};
@@ -28,9 +34,10 @@ function buildDateFilter(start, end) {
   return range;
 }
 
-export async function sumHarvestByGrade({ ownerId = 1, brokerId = null, treeId = null, start = null, end = null } = {}) {
+export async function sumHarvestByGrade({ ownerId = null, brokerId = null, treeId = null, start = null, end = null } = {}) {
   const where = { type: FruitFlowType.harvest };
-  if (ownerId != null) where.ownerId = ownerId;
+  const normalizedOwnerId = normalizeOwnerId(ownerId);
+  if (normalizedOwnerId !== null) where.ownerId = normalizedOwnerId;
   if (brokerId) where.brokerId = brokerId;
   if (treeId) where.treeId = treeId;
 
@@ -56,9 +63,10 @@ export async function sumHarvestByGrade({ ownerId = 1, brokerId = null, treeId =
   return { sum_weight, by_grade: normalized };
 }
 
-export async function computeNetStockByGrade({ ownerId = 1, brokerId = null, start = null, end = null } = {}) {
+export async function computeNetStockByGrade({ ownerId = null, brokerId = null, start = null, end = null } = {}) {
   const where = {};
-  if (ownerId != null) where.ownerId = ownerId;
+  const normalizedOwnerId = normalizeOwnerId(ownerId);
+  if (normalizedOwnerId !== null) where.ownerId = normalizedOwnerId;
   if (brokerId) where.brokerId = brokerId;
   const dateFilter = buildDateFilter(start, end);
   if (dateFilter) where.date = dateFilter;

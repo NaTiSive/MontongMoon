@@ -21,7 +21,10 @@ export function authenticate(required = true) {
       const role = decoded.role;
       let userRecord = null;
       if (role === "owner") {
-        userRecord = await prisma.owner.findUnique({ where: { ownerId: Number(decoded.sub) || 1 } });
+        const ownerId = Number(decoded.sub);
+        if (Number.isFinite(ownerId)) {
+          userRecord = await prisma.owner.findUnique({ where: { ownerId } });
+        }
         if (userRecord) {
           req.user = normalizeUserRecord(userRecord, "owner", "approved");
         }

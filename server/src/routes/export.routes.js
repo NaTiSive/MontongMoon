@@ -5,13 +5,14 @@ import prisma from "../config/prisma.js";
 import { authenticate, requireRole } from "../middleware/auth.js";
 import { mapExportRequest, mapFruit, normalizeFruitFlowCode } from "../utils/formatters.js";
 import { computeNetStockByGrade } from "../utils/fruits.js";
+import { resolveOwnerIdForRequest } from "../utils/brokers.js";
 
 const router = Router();
 const EXPORT_GRADES = ["A", "B", "C"];
 const EPSILON = 1e-6;
 
-async function getStockByGrade(brokerId) {
-  const { by_grade } = await computeNetStockByGrade({ brokerId, ownerId: 1 });
+async function getStockByGrade(brokerId, ownerId) {
+  const { by_grade } = await computeNetStockByGrade({ brokerId, ownerId });
   const grades = { A: 0, B: 0, C: 0 };
   for (const grade of EXPORT_GRADES) {
     grades[grade] = Math.max(0, Number(by_grade?.[grade] ?? 0));
@@ -90,13 +91,17 @@ async function nextAccountId(tx) {
   return `AC${next.toString().padStart(3, "0")}`;
 }
 
-async function reserveExportFruits(tx, brokerId, grades) {
+async function reserveExportFruits(tx, brokerId, grades, ownerId) {
   const reserved = [];
   for (const grade of EXPORT_GRADES) {
     let remaining = Number(grades[grade] || 0);
     if (remaining <= EPSILON) continue;
+    const where = { brokerId, grade, type: FruitFlowType.harvest };
+    if (ownerId !== null && ownerId !== undefined) {
+      where.ownerId = ownerId;
+    }
     const harvestRecords = await tx.durianFruit.findMany({
-      where: { brokerId, grade, type: FruitFlowType.harvest },
+      where,
       orderBy: [{ date: "asc" }, { fruitId: "asc" }],
     });
 
@@ -164,7 +169,7 @@ async function getLatestAcceptedContract(brokerId) {
   });
 }
 
-async function bookRevenue(tx, brokerId, contract, grades, reqId) {
+async function bookRevenue(tx, ownerId, brokerId, contract, grades, reqId) {
   const priceMap = (contract?.prices || []).reduce((acc, price) => {
     acc[price.grade] = Number(price.price);
     return acc;
@@ -173,10 +178,12 @@ async function bookRevenue(tx, brokerId, contract, grades, reqId) {
     const weight = Number(grades[grade] || 0);
     const price = Number(priceMap[grade] || 0);
     if (weight > EPSILON && price > 0) {
+      const targetOwnerId = ownerId ?? contract?.ownerId ?? null;
+      if (targetOwnerId === null) continue;
       await tx.account.create({
         data: {
           accountId: await nextAccountId(tx),
-          ownerId: 1,
+          ownerId: targetOwnerId,
           brokerId,
           type: "income",
           amount: weight * price,
@@ -194,7 +201,8 @@ async function bookRevenue(tx, brokerId, contract, grades, reqId) {
 router.get("/stock", authenticate(), async (req, res) => {
   const brokerId = req.query.broker_id ? String(req.query.broker_id) : null;
   const effective = brokerId ?? (req.user.role === "broker" ? req.user.id : null);
-  const stock = await getStockByGrade(effective);
+  const ownerId = await resolveOwnerIdForRequest(req.user, req.query.owner_id);
+  const stock = await getStockByGrade(effective, ownerId);
   res.json({ stock });
 });
 
@@ -223,7 +231,12 @@ router.post("/requests", authenticate(), requireRole("broker"), async (req, res)
     return res.status(400).json({ message: "น้ำหนักอย่างน้อยหนึ่งเกรดต้องมากกว่า 0" });
   }
 
-  const stock = await getStockByGrade(req.user.id);
+  const ownerId = await resolveOwnerIdForRequest(req.user, req.body.owner_id);
+  if (ownerId === null) {
+    return res.status(400).json({ message: "ไม่พบเจ้าของสวนที่เกี่ยวข้องกับผู้รับเหมานี้" });
+  }
+
+  const stock = await getStockByGrade(req.user.id, ownerId);
   if (grades.A > stock.A || grades.B > stock.B || grades.C > stock.C) {
     return res.status(400).json({ message: "น้ำหนักบางเกรดเกินกว่าสต็อกพร้อมส่งออก" });
   }
@@ -240,7 +253,7 @@ router.post("/requests", authenticate(), requireRole("broker"), async (req, res)
         },
       });
 
-      const reserved = await reserveExportFruits(tx, req.user.id, grades);
+      const reserved = await reserveExportFruits(tx, req.user.id, grades, ownerId);
       if (!reserved.length) {
         throw new Error("ไม่สามารถจองผลผลิตได้");
       }
@@ -342,7 +355,7 @@ router.post("/requests/:id/approve", authenticate(), requireRole("owner"), async
         exported.push(updatedFruit);
       }
 
-      await bookRevenue(tx, current.brokerId, contract, totals, current.id);
+      await bookRevenue(tx, contract.ownerId, current.brokerId, contract, totals, current.id);
 
       const updatedRequest = await tx.exportRequest.update({
         where: { id },

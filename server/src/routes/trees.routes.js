@@ -4,6 +4,7 @@ import prisma from "../config/prisma.js";
 import { authenticate, requireRole } from "../middleware/auth.js";
 import { mapTree } from "../utils/formatters.js";
 import { sumHarvestByGrade } from "../utils/fruits.js";
+import { resolveOwnerIdForRequest } from "../utils/brokers.js";
 
 const router = Router();
 
@@ -14,7 +15,7 @@ const TREE_STATUS_INPUT = {
 };
 
 router.get("/", authenticate(), async (req, res) => {
-  const { broker_id: brokerIdParam } = req.query;
+  const { broker_id: brokerIdParam, owner_id: ownerIdParam } = req.query;
   const where = {};
   if (req.user.role === "broker") {
     where.brokerId = req.user.id;
@@ -22,12 +23,16 @@ router.get("/", authenticate(), async (req, res) => {
   if (brokerIdParam) {
     where.brokerId = String(brokerIdParam);
   }
+  const ownerId = await resolveOwnerIdForRequest(req.user, ownerIdParam);
+  if (ownerId !== null) {
+    where.ownerId = ownerId;
+  }
   const trees = await prisma.durianTree.findMany({ where, orderBy: { treeId: "asc" } });
   res.json({ data: trees.map(mapTree) });
 });
 
 router.get("/harvest/summary", authenticate(), async (req, res) => {
-  const { broker_id: brokerIdParam, tree_id: treeIdParam, start, end } = req.query;
+  const { broker_id: brokerIdParam, owner_id: ownerIdParam, tree_id: treeIdParam, start, end } = req.query;
   let brokerId = null;
   if (req.user.role === "broker") {
     brokerId = req.user.id;
@@ -40,6 +45,8 @@ router.get("/harvest/summary", authenticate(), async (req, res) => {
   if (treeIdParam) {
     treeId = String(treeIdParam);
   }
+
+  const ownerId = await resolveOwnerIdForRequest(req.user, ownerIdParam);
 
   let startDate;
   if (start) {
@@ -57,7 +64,7 @@ router.get("/harvest/summary", authenticate(), async (req, res) => {
     }
   }
 
-  const summary = await sumHarvestByGrade({ ownerId: 1, brokerId, treeId, start: startDate, end: endDate });
+  const summary = await sumHarvestByGrade({ ownerId, brokerId, treeId, start: startDate, end: endDate });
   res.json({ summary });
 });
 

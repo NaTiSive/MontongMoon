@@ -3,6 +3,7 @@ import { z } from "zod";
 import prisma from "../config/prisma.js";
 import { authenticate, requireRole } from "../middleware/auth.js";
 import { mapTransaction } from "../utils/formatters.js";
+import { resolveOwnerIdForRequest } from "../utils/brokers.js";
 
 const router = Router();
 
@@ -19,7 +20,7 @@ const TRANSACTION_TYPE_INPUT = {
 };
 
 router.get("/", authenticate(), async (req, res) => {
-  const { broker_id: brokerIdParam } = req.query;
+  const { broker_id: brokerIdParam, owner_id: ownerIdParam } = req.query;
   const where = {};
 
   if (req.user?.role === "broker") {
@@ -28,6 +29,11 @@ router.get("/", authenticate(), async (req, res) => {
 
   if (brokerIdParam) {
     where.brokerId = String(brokerIdParam);
+  }
+
+  const ownerId = await resolveOwnerIdForRequest(req.user, ownerIdParam);
+  if (ownerId !== null) {
+    where.ownerId = ownerId;
   }
 
   const transactions = await prisma.account.findMany({
@@ -60,11 +66,14 @@ router.post("/", authenticate(), requireRole("broker", "owner"), async (req, res
 
   const { type, amount, payment_method, note, date } = parsed.data;
   const brokerId = req.user.role === "broker" ? req.user.id : req.body.broker_id ? String(req.body.broker_id) : null;
-
+  const ownerId = await resolveOwnerIdForRequest(req.user, req.body.owner_id);
+  if (ownerId === null) {
+    return res.status(400).json({ message: "ไม่พบเจ้าของสวนสำหรับบันทึกธุรกรรม" });
+  }
   const tx = await prisma.account.create({
     data: {
       accountId: await generateAccountId(),
-      ownerId: 1,
+      ownerId,
       brokerId,
       type: TRANSACTION_TYPE_INPUT[type],
       amount,
@@ -98,7 +107,7 @@ router.patch("/:id/reject", authenticate(), requireRole("owner"), async (req, re
 });
 
 router.get("/summary/all", authenticate(), requireRole("owner"), async (req, res) => {
-  const transactions = await prisma.account.findMany();
+  const transactions = await prisma.account.findMany({ where: { ownerId: req.user.id } });
   const summary = {
     total: transactions.length,
     byStatus: {},

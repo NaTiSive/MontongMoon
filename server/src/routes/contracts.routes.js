@@ -3,12 +3,18 @@ import { z } from "zod";
 import prisma from "../config/prisma.js";
 import { authenticate, requireRole } from "../middleware/auth.js";
 import { mapContract } from "../utils/formatters.js";
-import { getBrokerApprovalStatus } from "../utils/brokers.js";
+import { getBrokerApprovalStatus, resolveOwnerIdForRequest } from "../utils/brokers.js";
 
 const router = Router();
 
 router.get("/deadline", authenticate(), async (req, res) => {
-  const owner = await prisma.owner.findUnique({ where: { ownerId: 1 } });
+  const ownerId = await resolveOwnerIdForRequest(req.user, req.query.owner_id);
+  let owner = null;
+  if (ownerId !== null) {
+    owner = await prisma.owner.findUnique({ where: { ownerId } });
+  } else {
+    owner = await prisma.owner.findFirst({ orderBy: { ownerId: "asc" } });
+  }
   if (!owner || !owner.currentDeadlineDate) {
     return res.status(404).json({ message: "ยังไม่ตั้งค่ากำหนดส่ง" });
   }
@@ -24,7 +30,7 @@ router.put("/deadline", authenticate(), requireRole("owner"), async (req, res) =
   }
   const dt = new Date(parsed.data.deadline);
   const updated = await prisma.owner.update({
-    where: { ownerId: 1 },
+    where: { ownerId: req.user.id },
     data: {
       currentDeadlineDate: dt,
       lastModifiedDeadlineDate: new Date(),
@@ -66,8 +72,12 @@ router.post("/", authenticate(), requireRole("broker"), async (req, res) => {
     return res.status(400).json({ message: "ข้อมูลไม่ถูกต้อง", details: parsed.error.flatten() });
   }
 
-  const owner = await prisma.owner.findUnique({ where: { ownerId: 1 } });
-  if (!owner) return res.status(500).json({ message: "ยังไม่ได้สร้างบัญชีเจ้าของสวน" });
+  let ownerId = await resolveOwnerIdForRequest(req.user, req.body.owner_id);
+  if (ownerId === null) {
+    const fallbackOwner = await prisma.owner.findFirst({ orderBy: { ownerId: "asc" } });
+    ownerId = fallbackOwner?.ownerId ?? null;
+  }
+  if (ownerId === null) return res.status(500).json({ message: "ยังไม่ได้สร้างบัญชีเจ้าของสวน" });
 
   const contractId = await generateContractId();
   const offerprice = `${parsed.data.offerprice_by_grade.A},${parsed.data.offerprice_by_grade.B},${parsed.data.offerprice_by_grade.C}`;
@@ -76,7 +86,7 @@ router.post("/", authenticate(), requireRole("broker"), async (req, res) => {
     data: {
       contractId,
       brokerId: req.user.id,
-      ownerId: owner.ownerId,
+      ownerId,
       qtyEstimate: parsed.data.qtt_estimate,
       paymentTerm: parsed.data.payment_term ? PAYMENT_TERM_INPUT[parsed.data.payment_term] : "bankTransfer",
       note: parsed.data.note || "",
@@ -98,13 +108,17 @@ router.post("/", authenticate(), requireRole("broker"), async (req, res) => {
 });
 
 router.get("/", authenticate(), async (req, res) => {
-  const { broker_id: brokerIdParam } = req.query;
+  const { broker_id: brokerIdParam, owner_id: ownerIdParam } = req.query;
   const where = {};
   if (req.user.role === "broker") {
     where.brokerId = req.user.id;
   }
   if (brokerIdParam) {
     where.brokerId = String(brokerIdParam);
+  }
+  const ownerId = await resolveOwnerIdForRequest(req.user, ownerIdParam);
+  if (ownerId !== null) {
+    where.ownerId = ownerId;
   }
 
   const contracts = await prisma.contract.findMany({
