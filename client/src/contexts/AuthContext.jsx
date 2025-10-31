@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { getBrokerApproval } from "../api/contracts";
+import { setAuthToken } from '../api/client';
 
 const AuthCtx = createContext(null);
 
@@ -106,4 +107,33 @@ export function useAuth() {
   const ctx = useContext(AuthCtx);
   if (!ctx) throw new Error("useAuth must be used within AuthProvider");
   return ctx;
+}
+
+async function loginOwner(email, password) {
+  const r = await fetch(`${import.meta.env.VITE_API_URL}/auth/login-owner`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password })
+  });
+  if (!r.ok) throw new Error('Invalid credentials');
+  const data = await r.json();              // { token, role:'OWNER', userId, name }
+  setAuthToken(data.token);
+  // เก็บ user เดิมของคุณตามโครงเก่า:
+  const user = { id: data.userId, name: data.name, role: 'owner', approvalStatus: 'approved' };
+  localStorage.setItem('mm:user', JSON.stringify(user));
+  return user;
+}
+
+async function loginBroker(email, password) {
+  const r = await fetch(`${import.meta.env.VITE_API_URL}/auth/login-broker`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password })
+  });
+  if (!r.ok) throw new Error('Invalid credentials');
+  const data = await r.json();              // { token, role:'BROKER', userId, name, approvalStatus }
+  setAuthToken(data.token);
+  const user = { id: data.userId, name: data.name, role: 'broker', approvalStatus: data.approvalStatus };
+  localStorage.setItem('mm:user', JSON.stringify(user));
+  return user;
 }

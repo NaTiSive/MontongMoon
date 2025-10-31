@@ -1,49 +1,22 @@
 // src/api/trees.js
-// ──────────────────────────────────────────────
-// ใช้เก็บข้อมูลต้นทุเรียนของสวนใน LocalStorage
-// พร้อม alias field tree_id สำหรับความเข้ากันกับทุกหน้า
-// ──────────────────────────────────────────────
+import { apiGet, apiPatch } from "./client";
 
-const KEY = "mm:trees@v1";
-
-// ── utility ───────────────────────────────────
-function load() {
-  return JSON.parse(localStorage.getItem(KEY) || "[]");
-}
-function save(data) {
-  localStorage.setItem(KEY, JSON.stringify(data));
-}
-
-// ── listTrees ─────────────────────────────────
-// คืนข้อมูลต้นทั้งหมด พร้อม field tree_id = id
-export function listTrees() {
-  return load().map((t) => ({
-    ...t,
-    tree_id: t.tree_id || t.id, // เพิ่ม alias ให้แน่ใจว่าเข้ากันได้กับหน้าอื่น
+// ใช้ในหน้า: BrokerReportProblem, BrokerActivity
+export async function listTrees() {
+  const rows = await apiGet("/trees");
+  return rows.map((t) => ({
+    id: t.id,
+    name: t.name || `ต้นที่ ${t.id}`,
+    status: t.status || "ปกติ",
   }));
 }
 
-// ── seedTreesIfEmpty ───────────────────────────
-// ถ้ายังไม่มีข้อมูล ให้สร้างตัวอย่างไว้ก่อน
+// ให้คงฟังก์ชันไว้เพื่อไม่ให้หน้าเดิมพัง (ไม่มีผลเมื่อใช้ backend จริง)
 export function seedTreesIfEmpty() {
-  if (load().length === 0) {
-    const sample = [
-      { id: "T001", name: "ต้นทุเรียน 1", status: "ปกติ" },
-      { id: "T002", name: "ต้นทุเรียน 2", status: "ออกดอก" },
-      { id: "T003", name: "ต้นทุเรียน 3", status: "ออกผล" },
-      { id: "T004", name: "ต้นทุเรียน 4", status: "ปกติ" },
-    ];
-    save(sample);
-  }
+  /* no-op: ทำ seed ในระดับ DB (prisma/seed.js) แทน */
 }
 
-// ── updateTreeStatus ───────────────────────────
-// อัปเดตสถานะต้นทุเรียนรายต้น
-export function updateTreeStatus(tree_id, status) {
-  const all = load();
-  const t = all.find((x) => x.id === tree_id || x.tree_id === tree_id);
-  if (!t) throw new Error("ไม่พบต้นไม้ที่ระบุ");
-  t.status = status; // "ปกติ" | "ออกดอก" | "ออกผล"
-  save(all);
-  return t;
+// อัปเดตสถานะต้นไม้ (ใช้ใน BrokerActivity)
+export async function updateTreeStatus(tree_id, status) {
+  return apiPatch(`/trees/${tree_id}/status`, { status });
 }

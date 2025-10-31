@@ -1,54 +1,31 @@
 // src/api/problems.js
-const KEY = "mm:problems@v1";
+import { apiGet, apiPost, apiPatch } from "./client";
 
-function load() {
-  return JSON.parse(localStorage.getItem(KEY) || "[]");
-}
-function save(data) {
-  localStorage.setItem(KEY, JSON.stringify(data));
-}
-
-export function listProblems() {
-  return load().sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+// สร้างปัญหาใหม่ (UC3)
+export async function createProblem({ broker_id, tree_id, description }) {
+  return apiPost("/problems", {
+    brokerId: String(broker_id),
+    treeId: tree_id ? String(tree_id) : null,
+    description,
+  });
 }
 
-export function createProblem({ broker_id, tree_id, type, note_broker }) {
-  const all = load();
-  const problem = {
-    id: crypto.randomUUID(),
-    broker_id,
-    tree_id: tree_id || null,
-    type,
-    note_broker,                 // ✅ เก็บข้อความจาก broker
-    status: "เปิดปัญหา",
-    created_at: new Date().toISOString(),
-    updated_at: null,
-    owner_note: "",
-  };
-  all.push(problem);
-  save(all);
-  return problem;
+// ดึงปัญหาทั้งหมด (owner จะเห็นทั้งหมด / broker จะกรองเองในหน้า)
+export async function listProblems() {
+  const rows = await apiGet("/problems");
+  return rows.map((r) => ({
+    id: r.id,
+    broker_id: r.brokerId,
+    tree_id: r.treeId,
+    description: r.description,
+    status: r.status, // "เปิดปัญหา" | "ระหว่างแก้ไข" | "แก้ไขแล้ว"
+    owner_note: r.ownerNote || "",
+    created_at: r.createdAt,
+    updated_at: r.updatedAt,
+  }));
 }
 
-// Owner: มอบหมาย / บันทึกโน้ต / ตั้งสถานะเป็น "ระหว่างแก้ไข"
-export function ownerAssignNoteAndSetPending(id, note) {
-  const all = load();
-  const p = all.find((x) => x.id === id);
-  if (!p) throw new Error("ไม่พบปัญหา");
-  p.owner_note = note;
-  p.status = "ระหว่างแก้ไข";
-  p.updated_at = new Date().toISOString();
-  save(all);
-  return p;
-}
-
-// Broker: ยืนยันว่าแก้ไขเสร็จแล้ว
-export function brokerConfirmFixed(id) {
-  const all = load();
-  const p = all.find((x) => x.id === id);
-  if (!p) throw new Error("ไม่พบปัญหา");
-  p.status = "แก้ไขแล้ว";
-  p.updated_at = new Date().toISOString();
-  save(all);
-  return p;
+// นายหน้ายืนยันว่า "แก้ไขแล้ว" (UC5)
+export async function brokerConfirmFixed(id) {
+  return apiPatch(`/problems/${id}/confirm-fixed`, {});
 }

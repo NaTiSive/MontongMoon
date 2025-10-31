@@ -1,85 +1,65 @@
 // src/api/fruits.js
-const KEY = "mm:fruits@v1";
+import { apiGet, apiPost } from "./client";
 
-// ✅ export รายชื่อเกรดมาตรฐาน (ให้ Owner/Broker ใช้ได้ทุกหน้า)
-export const GRADES = ["A", "B", "C", "ตกเกรด"];
+// Export รายชื่อเกรดให้ UI เดิมใช้เหมือนเดิม
+export const GRADES = ["A", "B", "C", "ตกเกรด"]; // "ตกเกรด" = REJECT
 
-// ---------- utils ----------
-function load() {
-  try {
-    return JSON.parse(localStorage.getItem(KEY) || "[]");
-  } catch {
-    return [];
-  }
+function mapGradeToServer(g) {
+  return g === "ตกเกรด" ? "REJECT" : g; // A/B/C/REJECT
+}
+function mapGradeFromServer(g) {
+  return g === "REJECT" ? "ตกเกรด" : g;
 }
 
-function save(arr) {
-  localStorage.setItem(KEY, JSON.stringify(arr));
-}
-
-function uuid() {
-  if (typeof crypto !== "undefined" && crypto.randomUUID)
-    return crypto.randomUUID();
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === "x" ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
-}
-
-// ---------- CRUD ----------
-
-// ✅ บันทึกผลผลิต (type: เก็บเกี่ยว)
-export function createHarvestFruitRecord(payload) {
-  const { broker_id, grade, weight_kg, note } = payload || {};
-  const w = Number(weight_kg);
-  if (!grade || !GRADES.includes(grade)) throw new Error("เกรดไม่ถูกต้อง");
-  if (!w || w <= 0) throw new Error("น้ำหนักต้องมากกว่า 0");
-
-  const rec = {
-    id: uuid(),
-    broker_id: broker_id ?? null,
-    grade,
-    weight_kg: w,
+// ✅ เพิ่มผลผลิตใหม่ (type = HARVEST)
+export async function createHarvestFruitRecord({ broker_id, grade, weight_kg, note }) {
+  const payload = {
+    brokerId: String(broker_id),
+    grade: mapGradeToServer(grade),
+    amountKg: Number(weight_kg),
     note: note || "",
-    harvest_at: new Date().toISOString(),
-    type: "เก็บเกี่ยว", // ✅ แยกชนิดเก็บเกี่ยวกับส่งออก
   };
-
-  const all = load();
-  all.unshift(rec);
-  save(all);
-  return rec;
+  const rec = await apiPost("/fruits/harvest", payload);
+  // map กลับให้เหมือน shape เดิมในตาราง
+  return {
+    id: rec.id,
+    broker_id,
+    grade: mapGradeFromServer(rec.grade),
+    weight_kg: rec.amountKg,
+    note: rec.note || "",
+    harvest_at: rec.date, // ISO
+    type: "เก็บเกี่ยว",
+  };
 }
 
-// ✅ ดึงทั้งหมด
-export function listFruits() {
-  return load();
+// ✅ ดึงเฉพาะของ broker (เฉพาะ HARVEST)
+export async function listFruitsByBrokerHarvestOnly(broker_id) {
+  const rows = await apiGet(`/fruits?type=HARVEST&brokerId=${broker_id}`);
+  return rows.map((r) => ({
+    id: r.id,
+    broker_id,
+    grade: mapGradeFromServer(r.grade),
+    weight_kg: r.amountKg,
+    note: r.note || "",
+    harvest_at: r.date,
+    type: "เก็บเกี่ยว",
+  }));
 }
 
-// ✅ ดึงเฉพาะเก็บเกี่ยว
-export function listHarvestOnly() {
-  return load().filter((r) => r.type !== "ส่งออก");
-}
-
-// ✅ ดึงเฉพาะ broker ที่เก็บเกี่ยว
-export function listFruitsByBrokerHarvestOnly(broker_id) {
-  return load().filter(
-    (r) => String(r.broker_id) === String(broker_id) && r.type !== "ส่งออก"
-  );
-}
-
-// ✅ ดึงเฉพาะช่วงเวลา (เก็บเกี่ยวเท่านั้น)
-export function listFruitsByDateRangeHarvestOnly({ startISO, endISO } = {}) {
-  let list = load().filter((r) => r.type !== "ส่งออก");
-  if (startISO)
-    list = list.filter((x) => new Date(x.harvest_at) >= new Date(startISO));
-  if (endISO)
-    list = list.filter((x) => new Date(x.harvest_at) <= new Date(endISO));
-  return list;
-}
-
-// ✅ ฟังก์ชันอื่น ๆ (ใช้ได้กับทั้งเก็บเกี่ยวและส่งออก)
-export function listFruitsByBroker(broker_id) {
-  return load().filter((x) => String(x.broker_id) === String(broker_id));
+// ✅ ดึงตามช่วงวัน (เฉพาะ HARVEST)
+export async function listFruitsByDateRangeHarvestOnly({ startISO, endISO }) {
+  const qs = new URLSearchParams();
+  qs.set("type", "HARVEST");
+  if (startISO) qs.set("start", startISO);
+  if (endISO) qs.set("end", endISO);
+  const rows = await apiGet(`/fruits?${qs.toString()}`);
+  return rows.map((r) => ({
+    id: r.id,
+    broker_id: r.brokerId,
+    grade: mapGradeFromServer(r.grade),
+    weight_kg: r.amountKg,
+    note: r.note || "",
+    harvest_at: r.date,
+    type: "เก็บเกี่ยว",
+  }));
 }

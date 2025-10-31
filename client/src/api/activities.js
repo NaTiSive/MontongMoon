@@ -1,32 +1,31 @@
 // src/api/activities.js
-const KEY = "mm:activities@v1";
+import { apiGet, apiPost } from "./client";
 
-function load() {
-  return JSON.parse(localStorage.getItem(KEY) || "[]");
-}
-function save(data) {
-  localStorage.setItem(KEY, JSON.stringify(data));
-}
-
-export function listActivitiesByBroker(broker_id) {
-  return load().filter((a) => a.broker_id === broker_id);
-}
-
-export function listActivitiesForOwner() {
-  return load();
+export async function listActivitiesByBroker(broker_id) {
+  const rows = await apiGet(`/activities?brokerId=${broker_id}`);
+  return rows.map((a) => ({
+    id: a.id,
+    broker_id: a.brokerId,
+    tree_id: a.treeId,
+    type: a.type, // "ดูแลรักษา" | "ออกดอก" | "ออกผล" | ...
+    note: a.note || "",
+    created_at: a.createdAt,
+  }));
 }
 
-export function createActivity({ broker_id, tree_id, type, note }) {
-  const all = load();
-  const act = {
-    id: crypto.randomUUID(),
+export async function createActivity({ broker_id, tree_id, type, note }) {
+  const rec = await apiPost("/activities", {
+    brokerId: String(broker_id),
+    treeId: String(tree_id),
+    type,
+    note: note || "",
+  });
+  return {
+    id: rec.id,
     broker_id,
     tree_id,
-    type, // เช่น "รดน้ำ", "ใส่ปุ๋ย", "ตัดหญ้า"
-    note,
-    created_at: new Date().toISOString(),
+    type: rec.type,
+    note: rec.note || "",
+    created_at: rec.createdAt,
   };
-  all.push(act);
-  save(all);
-  return act;
 }
