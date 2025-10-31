@@ -1,5 +1,9 @@
 import prisma from "../config/prisma.js";
-import { FRUIT_GRADE_LABELS, FRUIT_PROCESS_TYPE_CODES } from "./formatters.js";
+import {
+  FRUIT_GRADE_LABELS,
+  FRUIT_PROCESS_TYPE_CODES,
+  toNumberSafe,
+} from "./formatters.js";
 
 const GRADE_LABELS = Object.values(FRUIT_GRADE_LABELS);
 
@@ -7,11 +11,7 @@ function createEmptyGradeSummary() {
   return Object.fromEntries(GRADE_LABELS.map((label) => [label, 0]));
 }
 
-function toNumber(value) {
-  if (value == null) return 0;
-  const n = Number(value);
-  return Number.isNaN(n) ? 0 : n;
-}
+const toNumber = (value) => toNumberSafe(value);
 
 function buildDateFilter(start, end) {
   if (!start && !end) return undefined;
