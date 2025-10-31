@@ -24,6 +24,15 @@ const createEmptySummary = () => ({
   by_grade: { ...GRADE_SUMMARY_TEMPLATE },
 });
 
+const GRADE_SUMMARY_TEMPLATE = Object.freeze(
+  Object.fromEntries(GRADES.map((grade) => [grade, 0]))
+);
+
+const createEmptySummary = () => ({
+  sum_weight: 0,
+  by_grade: { ...GRADE_SUMMARY_TEMPLATE },
+});
+
 export default function BrokerHarvest() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -73,7 +82,7 @@ export default function BrokerHarvest() {
     return () => {
       alive = false;
     };
-  }, [user?.broker_id]);
+  }, [user?.broker_id, startDate, endDate]);
 
   // ─────────── โหลดข้อมูล ───────────
   useEffect(() => {
