@@ -35,9 +35,17 @@ export default function OwnerHarvest() {
     (async () => {
       try {
         setLoading(true);
-        const all = listHarvestOnly(); // ✅ ดึงเฉพาะรายการเก็บเกี่ยว
+        let data;
+        if (startDate || endDate) {
+          const startISO = startDate ? new Date(startDate).toISOString() : undefined;
+          const endISO = endDate ? new Date(endDate + "T23:59:59").toISOString() : undefined;
+          data = await listFruitsByDateRangeHarvestOnly({ startISO, endISO });
+        } else {
+          data = await listHarvestOnly();
+        }
         if (!alive) return;
-        setRows(all);
+        setRows(data);
+        setErr("");
       } catch (e) {
         if (!alive) return;
         setErr(e?.message || "โหลดข้อมูลไม่สำเร็จ");
@@ -49,7 +57,7 @@ export default function OwnerHarvest() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [startDate, endDate]);
 
   const fmtDT = (iso) =>
     new Date(iso).toLocaleString("th-TH", {
@@ -63,14 +71,6 @@ export default function OwnerHarvest() {
   // กรองข้อมูล
   const filtered = useMemo(() => {
     let list = rows;
-    if (startDate || endDate) {
-      list = listFruitsByDateRangeHarvestOnly({
-        startISO: startDate ? new Date(startDate).toISOString() : undefined,
-        endISO: endDate
-          ? new Date(endDate + "T23:59:59").toISOString()
-          : undefined,
-      });
-    }
     if (gradeFilter !== "ทั้งหมด")
       list = list.filter((x) => x.grade === gradeFilter);
 
