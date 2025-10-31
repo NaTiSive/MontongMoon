@@ -7,9 +7,20 @@ import { useAuth } from "../../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import {
   GRADES,
+  getHarvestSummary,
   listHarvestOnly,
   listFruitsByDateRangeHarvestOnly,
 } from "../../api/fruits";
+import { listTrees } from "../../api/trees";
+
+const OWNER_GRADE_SUMMARY_TEMPLATE = Object.freeze(
+  Object.fromEntries(GRADES.map((grade) => [grade, 0]))
+);
+
+const createEmptySummary = () => ({
+  sum_weight: 0,
+  by_grade: { ...OWNER_GRADE_SUMMARY_TEMPLATE },
+});
 
 export default function OwnerHarvest() {
   const { user } = useAuth();
@@ -23,24 +34,62 @@ export default function OwnerHarvest() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
+  const [summary, setSummary] = useState(() => createEmptySummary());
+  const [trees, setTrees] = useState([]);
+  const [loadingTrees, setLoadingTrees] = useState(true);
 
   // ฟิลเตอร์
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [gradeFilter, setGradeFilter] = useState("ทั้งหมด");
+  const [treeFilter, setTreeFilter] = useState("ทั้งหมด");
   const [q, setQ] = useState("");
 
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        setLoading(true);
-        const all = listHarvestOnly(); // ✅ ดึงเฉพาะรายการเก็บเกี่ยว
+        setLoadingTrees(true);
+        const data = await listTrees();
         if (!alive) return;
-        setRows(all);
+        setTrees(data);
+      } catch (e) {
+        if (!alive) return;
+        setTrees([]);
+      } finally {
+        if (!alive) return;
+        setLoadingTrees(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        setLoading(true);
+        const startISO = startDate ? new Date(startDate).toISOString() : undefined;
+        const endISO = endDate
+          ? new Date(endDate + "T23:59:59").toISOString()
+          : undefined;
+        const tree_id = treeFilter && treeFilter !== "ทั้งหมด" ? treeFilter : undefined;
+        const [data, sum] = await Promise.all([
+          startISO || endISO
+            ? listFruitsByDateRangeHarvestOnly({ startISO, endISO, tree_id })
+            : listHarvestOnly({ tree_id }),
+          getHarvestSummary({ startISO, endISO, tree_id }),
+        ]);
+        if (!alive) return;
+        setRows(data);
+        setSummary(sum);
+        setErr("");
       } catch (e) {
         if (!alive) return;
         setErr(e?.message || "โหลดข้อมูลไม่สำเร็จ");
+        setSummary(createEmptySummary());
       } finally {
         if (!alive) return;
         setLoading(false);
@@ -49,7 +98,7 @@ export default function OwnerHarvest() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [startDate, endDate, treeFilter]);
 
   const fmtDT = (iso) =>
     new Date(iso).toLocaleString("th-TH", {
@@ -63,47 +112,22 @@ export default function OwnerHarvest() {
   // กรองข้อมูล
   const filtered = useMemo(() => {
     let list = rows;
-    if (startDate || endDate) {
-      list = listFruitsByDateRangeHarvestOnly({
-        startISO: startDate ? new Date(startDate).toISOString() : undefined,
-        endISO: endDate
-          ? new Date(endDate + "T23:59:59").toISOString()
-          : undefined,
-      });
-    }
     if (gradeFilter !== "ทั้งหมด")
       list = list.filter((x) => x.grade === gradeFilter);
+
+    if (treeFilter !== "ทั้งหมด")
+      list = list.filter((x) => x.tree_id === treeFilter);
 
     const k = q.trim().toLowerCase();
     if (!k) return list;
     return list.filter((x) =>
-      `${x.id} ${x.grade} ${x.weight_kg} ${x.note ?? ""} ${
+      `${x.id} ${x.tree_id ?? ""} ${x.grade} ${x.weight_kg} ${x.note ?? ""} ${
         x.broker_id ?? ""
       }`
         .toLowerCase()
         .includes(k)
     );
-  }, [rows, startDate, endDate, gradeFilter, q]);
-
-  // รวมยอดตามเกรด
-  const totals = useMemo(() => {
-    const sumWeight = filtered.reduce(
-      (s, r) => s + Number(r.weight_kg || 0),
-      0
-    );
-    const byGrade = GRADES.reduce(
-      (acc, g) => {
-        const items = filtered.filter((r) => r.grade === g);
-        acc[g].weight_kg = items.reduce(
-          (s, r) => s + Number(r.weight_kg || 0),
-          0
-        );
-        return acc;
-      },
-      Object.fromEntries(GRADES.map((g) => [g, { weight_kg: 0 }]))
-    );
-    return { sumWeight, byGrade };
-  }, [filtered]);
+  }, [rows, gradeFilter, treeFilter, q]);
 
   return (
     <div
@@ -155,6 +179,24 @@ export default function OwnerHarvest() {
                 </div>
                 <div>
                   <label className="block text-sm text-slate-600 mb-1">
+                    ต้นทุเรียน
+                  </label>
+                  <select
+                    value={treeFilter}
+                    onChange={(e) => setTreeFilter(e.target.value)}
+                    className="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                    disabled={loadingTrees}
+                  >
+                    <option value="ทั้งหมด">ทั้งหมด</option>
+                    {trees.map((t) => (
+                      <option key={t.tree_id} value={t.tree_id}>
+                        {t.tree_id}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-600 mb-1">
                     เกรด
                   </label>
                   <select
@@ -194,14 +236,14 @@ export default function OwnerHarvest() {
               <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
                 <SummaryBox
                   label="น้ำหนักรวมทั้งหมด"
-                  value={totals.sumWeight.toLocaleString("th-TH")}
+                  value={summary.sum_weight.toLocaleString("th-TH")}
                   subtitle="กิโลกรัม"
                 />
                 {GRADES.map((g) => (
                   <SummaryBox
                     key={g}
                     label={g === "ตกเกรด" ? "ตกเกรด (กก.)" : `เกรด ${g} (กก.)`}
-                    value={totals.byGrade[g].weight_kg.toLocaleString("th-TH")}
+                    value={(summary.by_grade[g] ?? 0).toLocaleString("th-TH")}
                   />
                 ))}
               </div>

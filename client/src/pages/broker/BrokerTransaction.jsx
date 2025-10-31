@@ -4,6 +4,7 @@ import HeaderWrapper from "../../components/HeaderWrapper";
 import Card from "../../components/Card";
 import { useAuth } from "../../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
+import { isApprovedStatus } from "../../utils/approval";
 import {
   createTransaction,
   listBrokerTransactions,
@@ -18,17 +19,18 @@ export default function BrokerTransaction() {
     if (!user || user.role !== "broker") navigate("/login");
   }, [user, navigate]);
 
-  const disabled = user?.approvalStatus !== "approved";
+  const disabled = !isApprovedStatus(user?.approvalStatus);
 
   // โหลดรายการของฉัน
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
-  const reload = () => {
+  const reload = async () => {
     try {
-      const me = listBrokerTransactions(user?.broker_id);
+      const me = await listBrokerTransactions(user?.broker_id);
       setRows(me.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)));
+      setErr("");
     } catch (e) {
       setErr(e?.message || "โหลดข้อมูลไม่สำเร็จ");
     } finally {
@@ -99,7 +101,7 @@ export default function BrokerTransaction() {
         note: "",
         receipt: null,
       });
-      reload();
+      await reload();
       alert("บันทึกธุรกรรมสำเร็จ");
     } catch (e2) {
       alert(e2?.message || "บันทึกไม่สำเร็จ");
