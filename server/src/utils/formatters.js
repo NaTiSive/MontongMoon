@@ -44,6 +44,8 @@ export const FRUIT_PROCESS_METHOD_LABELS = {
   other: "อื่นๆ",
 };
 
+export const FRUIT_PROCESS_TYPE_CODES = Object.keys(FRUIT_PROCESS_METHOD_LABELS);
+
 const TREE_STATUS_LABELS = {
   normal: "ปกติ",
   flowering: "ออกดอก",
@@ -74,7 +76,7 @@ const PAYMENT_TERM_LABELS = {
   other: "อื่นๆ",
 };
 
-const FRUIT_GRADE_LABELS = {
+export const FRUIT_GRADE_LABELS = {
   A: "A",
   B: "B",
   C: "C",

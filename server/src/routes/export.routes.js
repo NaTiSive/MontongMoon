@@ -3,32 +3,15 @@ import { z } from "zod";
 import prisma from "../config/prisma.js";
 import { authenticate, requireRole } from "../middleware/auth.js";
 import { mapExportRequest, mapFruit } from "../utils/formatters.js";
+import { computeNetStockByGrade } from "../utils/fruits.js";
 
 const router = Router();
 
 async function getStockByGrade(brokerId) {
-  const harvest = await prisma.durianFruit.groupBy({
-    by: ["grade"],
-    _sum: { amount: true },
-    where: {
-      type: "harvest",
-      ...(brokerId ? { brokerId } : {}),
-    },
-  });
-  const exported = await prisma.durianFruit.groupBy({
-    by: ["grade"],
-    _sum: { amount: true },
-    where: {
-      type: "export",
-      ...(brokerId ? { brokerId } : {}),
-    },
-  });
-  const mapSum = (arr) => Object.fromEntries(arr.map((r) => [r.grade, Number(r._sum.amount || 0)]));
-  const harvestMap = mapSum(harvest);
-  const exportMap = mapSum(exported);
+  const { by_grade } = await computeNetStockByGrade({ brokerId, ownerId: 1 });
   const grades = { A: 0, B: 0, C: 0 };
   for (const grade of ["A", "B", "C"]) {
-    grades[grade] = Math.max(0, (harvestMap[grade] || 0) - (exportMap[grade] || 0));
+    grades[grade] = Math.max(0, Number(by_grade?.[grade] ?? 0));
   }
   return grades;
 }

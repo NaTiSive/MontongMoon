@@ -7,9 +7,19 @@ import { useAuth } from "../../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import {
   GRADES,
+  getHarvestSummary,
   listHarvestOnly,
   listFruitsByDateRangeHarvestOnly,
 } from "../../api/fruits";
+
+const GRADE_SUMMARY_TEMPLATE = Object.freeze(
+  Object.fromEntries(GRADES.map((grade) => [grade, 0]))
+);
+
+const createEmptySummary = () => ({
+  sum_weight: 0,
+  by_grade: { ...GRADE_SUMMARY_TEMPLATE },
+});
 
 export default function OwnerHarvest() {
   const { user } = useAuth();
@@ -23,6 +33,7 @@ export default function OwnerHarvest() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
+  const [summary, setSummary] = useState(() => createEmptySummary());
 
   // ฟิลเตอร์
   const [startDate, setStartDate] = useState("");
@@ -35,20 +46,24 @@ export default function OwnerHarvest() {
     (async () => {
       try {
         setLoading(true);
-        let data;
-        if (startDate || endDate) {
-          const startISO = startDate ? new Date(startDate).toISOString() : undefined;
-          const endISO = endDate ? new Date(endDate + "T23:59:59").toISOString() : undefined;
-          data = await listFruitsByDateRangeHarvestOnly({ startISO, endISO });
-        } else {
-          data = await listHarvestOnly();
-        }
+        const startISO = startDate ? new Date(startDate).toISOString() : undefined;
+        const endISO = endDate
+          ? new Date(endDate + "T23:59:59").toISOString()
+          : undefined;
+        const [data, sum] = await Promise.all([
+          startISO || endISO
+            ? listFruitsByDateRangeHarvestOnly({ startISO, endISO })
+            : listHarvestOnly(),
+          getHarvestSummary({ startISO, endISO }),
+        ]);
         if (!alive) return;
         setRows(data);
+        setSummary(sum);
         setErr("");
       } catch (e) {
         if (!alive) return;
         setErr(e?.message || "โหลดข้อมูลไม่สำเร็จ");
+        setSummary(createEmptySummary());
       } finally {
         if (!alive) return;
         setLoading(false);
@@ -83,27 +98,7 @@ export default function OwnerHarvest() {
         .toLowerCase()
         .includes(k)
     );
-  }, [rows, startDate, endDate, gradeFilter, q]);
-
-  // รวมยอดตามเกรด
-  const totals = useMemo(() => {
-    const sumWeight = filtered.reduce(
-      (s, r) => s + Number(r.weight_kg || 0),
-      0
-    );
-    const byGrade = GRADES.reduce(
-      (acc, g) => {
-        const items = filtered.filter((r) => r.grade === g);
-        acc[g].weight_kg = items.reduce(
-          (s, r) => s + Number(r.weight_kg || 0),
-          0
-        );
-        return acc;
-      },
-      Object.fromEntries(GRADES.map((g) => [g, { weight_kg: 0 }]))
-    );
-    return { sumWeight, byGrade };
-  }, [filtered]);
+  }, [rows, gradeFilter, q]);
 
   return (
     <div
@@ -194,14 +189,14 @@ export default function OwnerHarvest() {
               <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
                 <SummaryBox
                   label="น้ำหนักรวมทั้งหมด"
-                  value={totals.sumWeight.toLocaleString("th-TH")}
+                  value={summary.sum_weight.toLocaleString("th-TH")}
                   subtitle="กิโลกรัม"
                 />
                 {GRADES.map((g) => (
                   <SummaryBox
                     key={g}
                     label={g === "ตกเกรด" ? "ตกเกรด (กก.)" : `เกรด ${g} (กก.)`}
-                    value={totals.byGrade[g].weight_kg.toLocaleString("th-TH")}
+                    value={(summary.by_grade[g] ?? 0).toLocaleString("th-TH")}
                   />
                 ))}
               </div>

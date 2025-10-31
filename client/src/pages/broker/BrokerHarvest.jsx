@@ -8,10 +8,20 @@ import { useAuth } from "../../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import {
   GRADES,
+  createHarvestFruitRecord,
+  getHarvestSummary,
   listFruitsByBrokerHarvestOnly,
   listFruitsByDateRangeHarvestOnly,
-  createHarvestFruitRecord,
 } from "../../api/fruits";
+
+const GRADE_SUMMARY_TEMPLATE = Object.freeze(
+  Object.fromEntries(GRADES.map((grade) => [grade, 0]))
+);
+
+const createEmptySummary = () => ({
+  sum_weight: 0,
+  by_grade: { ...GRADE_SUMMARY_TEMPLATE },
+});
 
 export default function BrokerHarvest() {
   const { user } = useAuth();
@@ -26,6 +36,7 @@ export default function BrokerHarvest() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
+  const [summary, setSummary] = useState(() => createEmptySummary());
 
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -40,21 +51,28 @@ export default function BrokerHarvest() {
     (async () => {
       try {
         setLoading(true);
-        let data;
-        if (startDate || endDate) {
-          const startISO = startDate ? new Date(startDate).toISOString() : undefined;
-          const endISO = endDate ? new Date(endDate + "T23:59:59").toISOString() : undefined;
-          data = await listFruitsByDateRangeHarvestOnly({ startISO, endISO });
-          data = data.filter((r) => String(r.broker_id) === String(user?.broker_id));
-        } else {
-          data = await listFruitsByBrokerHarvestOnly(user?.broker_id);
-        }
+        const startISO = startDate ? new Date(startDate).toISOString() : undefined;
+        const endISO = endDate
+          ? new Date(endDate + "T23:59:59").toISOString()
+          : undefined;
+        const [data, sum] = await Promise.all([
+          startISO || endISO
+            ? listFruitsByDateRangeHarvestOnly({
+                startISO,
+                endISO,
+                broker_id: user?.broker_id,
+              })
+            : listFruitsByBrokerHarvestOnly(user?.broker_id),
+          getHarvestSummary({ startISO, endISO, broker_id: user?.broker_id }),
+        ]);
         if (!alive) return;
         setRows(data);
+        setSummary(sum);
         setErr("");
       } catch (e) {
         if (!alive) return;
         setErr(e?.message || "โหลดข้อมูลไม่สำเร็จ");
+        setSummary(createEmptySummary());
       } finally {
         if (!alive) return;
         setLoading(false);
@@ -78,6 +96,16 @@ export default function BrokerHarvest() {
         note: form.note?.trim(),
       });
       setRows((prev) => [rec, ...prev]);
+      const startISO = startDate ? new Date(startDate).toISOString() : undefined;
+      const endISO = endDate
+        ? new Date(endDate + "T23:59:59").toISOString()
+        : undefined;
+      const sum = await getHarvestSummary({
+        startISO,
+        endISO,
+        broker_id: user?.broker_id,
+      });
+      setSummary(sum);
       setForm({ grade: "A", weight_kg: "", note: "" });
       alert("บันทึกผลผลิตเรียบร้อย");
     } catch (e) {
@@ -96,20 +124,7 @@ export default function BrokerHarvest() {
     return list.filter((x) =>
       `${x.grade} ${x.note ?? ""}`.toLowerCase().includes(k)
     );
-  }, [rows, startDate, endDate, gradeFilter, q, user?.broker_id]);
-
-  // ─────────── รวมยอดตามเกรด ───────────
-  const totals = useMemo(() => {
-    const byGrade = Object.fromEntries(GRADES.map((g) => [g, { weight_kg: 0 }]));
-    filtered.forEach((r) => {
-      if (byGrade[r.grade]) byGrade[r.grade].weight_kg += Number(r.weight_kg || 0);
-    });
-    const sumWeight = Object.values(byGrade).reduce(
-      (s, g) => s + g.weight_kg,
-      0
-    );
-    return { sumWeight, byGrade };
-  }, [filtered]);
+  }, [rows, gradeFilter, q]);
 
   const fmtDT = (iso) =>
     new Date(iso).toLocaleString("th-TH", {
@@ -262,14 +277,14 @@ export default function BrokerHarvest() {
               <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
                 <SummaryBox
                   label="น้ำหนักรวมทั้งหมด"
-                  value={totals.sumWeight.toLocaleString("th-TH")}
+                  value={summary.sum_weight.toLocaleString("th-TH")}
                   subtitle="กิโลกรัม"
                 />
                 {GRADES.map((g) => (
                   <SummaryBox
                     key={g}
                     label={g === "ตกเกรด" ? "ตกเกรด (กก.)" : `เกรด ${g} (กก.)`}
-                    value={totals.byGrade[g].weight_kg.toLocaleString("th-TH")}
+                    value={(summary.by_grade[g] ?? 0).toLocaleString("th-TH")}
                   />
                 ))}
               </div>

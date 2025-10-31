@@ -2,7 +2,12 @@ import { Router } from "express";
 import { z } from "zod";
 import prisma from "../config/prisma.js";
 import { authenticate, requireRole } from "../middleware/auth.js";
-import { FRUIT_PROCESS_METHOD_LABELS, mapFruit } from "../utils/formatters.js";
+import {
+  FRUIT_PROCESS_METHOD_LABELS,
+  FRUIT_PROCESS_TYPE_CODES,
+  mapFruit,
+} from "../utils/formatters.js";
+import { sumHarvestByGrade } from "../utils/fruits.js";
 
 const router = Router();
 
@@ -15,7 +20,7 @@ const PROCESS_METHOD_INPUT = Object.fromEntries(
   Object.entries(FRUIT_PROCESS_METHOD_LABELS).map(([code, label]) => [label, code])
 );
 
-const PROCESS_TYPE_VALUES = Object.keys(FRUIT_PROCESS_METHOD_LABELS);
+const PROCESS_TYPE_VALUES = FRUIT_PROCESS_TYPE_CODES;
 
 const FRUIT_GRADE_INPUT = {
   A: "A",
@@ -85,6 +90,36 @@ router.get("/harvest", authenticate(), async (req, res) => {
   });
 
   res.json({ data: fruits.map(mapFruit) });
+});
+
+router.get("/harvest/summary", authenticate(), async (req, res) => {
+  const { broker_id: brokerIdParam, start, end } = req.query;
+  let brokerId = null;
+  if (req.user.role === "broker") {
+    brokerId = req.user.id;
+  }
+  if (brokerIdParam) {
+    brokerId = String(brokerIdParam);
+  }
+
+  let startDate;
+  if (start) {
+    const parsed = new Date(start);
+    if (!Number.isNaN(parsed.getTime())) {
+      startDate = parsed;
+    }
+  }
+
+  let endDate;
+  if (end) {
+    const parsed = new Date(end);
+    if (!Number.isNaN(parsed.getTime())) {
+      endDate = parsed;
+    }
+  }
+
+  const summary = await sumHarvestByGrade({ brokerId, ownerId: 1, start: startDate, end: endDate });
+  res.json({ summary });
 });
 
 const harvestSchema = z.object({
