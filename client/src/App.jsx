@@ -1,6 +1,7 @@
 // src/App.jsx
 import { Routes, Route, Navigate, Outlet } from "react-router-dom";
 import { useAuth } from "./contexts/AuthContext";
+import { isApprovedStatus, normalizeApprovalStatus } from "./utils/approval";
 
 // --- Auth pages ---
 import Login from "./pages/Login";
@@ -48,17 +49,8 @@ function ApprovalGuard() {
   if (!user) return <Navigate to="/login" replace />;
   if (user.role !== "broker") return <Navigate to={`/${user.role}/dashboard`} replace />;
 
-  const approval = String(user.approvalStatus ?? "").trim().toLowerCase();
-  const approvedStates = [
-    "approved",
-    "อนุมัติ",
-    "อนุมัติแล้ว",
-    "ผ่านการอนุมัติ",
-    "ยอมรับ",
-    "ยืนยัน",
-  ];
-  const isApproved = approvedStates.some((state) => approval.includes(state));
-  if (!isApproved) {
+  const approval = normalizeApprovalStatus(user.approvalStatus);
+  if (!isApprovedStatus(approval)) {
     return <Navigate to="/broker/dashboard" replace />;
   }
   return <Outlet />;

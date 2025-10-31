@@ -5,6 +5,7 @@ import HeaderWrapper from "../../components/HeaderWrapper";
 import Card from "../../components/Card";
 import { useAuth } from "../../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
+import { isApprovedStatus } from "../../utils/approval";
 
 import { createActivity, listActivitiesByBroker } from "../../api/activities";
 import { listTrees, seedTreesIfEmpty, updateTreeStatus } from "../../api/trees";
@@ -18,7 +19,7 @@ export default function BrokerActivity() {
     if (!user || user.role !== "broker") navigate("/login");
   }, [user, navigate]);
 
-  const disabled = user?.approvalStatus !== "approved";
+  const disabled = !isApprovedStatus(user?.approvalStatus);
 
   // ───────────────────────────
   // Load trees + my activities

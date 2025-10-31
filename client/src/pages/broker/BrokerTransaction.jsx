@@ -4,6 +4,7 @@ import HeaderWrapper from "../../components/HeaderWrapper";
 import Card from "../../components/Card";
 import { useAuth } from "../../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
+import { isApprovedStatus } from "../../utils/approval";
 import {
   createTransaction,
   listBrokerTransactions,
@@ -18,7 +19,7 @@ export default function BrokerTransaction() {
     if (!user || user.role !== "broker") navigate("/login");
   }, [user, navigate]);
 
-  const disabled = user?.approvalStatus !== "approved";
+  const disabled = !isApprovedStatus(user?.approvalStatus);
 
   // โหลดรายการของฉัน
   const [rows, setRows] = useState([]);
