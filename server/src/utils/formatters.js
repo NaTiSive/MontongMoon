@@ -34,7 +34,14 @@ const ACTIVITY_TYPE_LABELS = {
 const FRUIT_TYPE_LABELS = {
   harvest: "เก็บเกี่ยว",
   export: "ขนส่งออก",
-  process: "แปรรูป",
+};
+
+export const FRUIT_PROCESS_METHOD_LABELS = {
+  fry: "ทอด",
+  freeze: "แช่แข็ง",
+  jam: "กวน",
+  dry: "อบแห้ง",
+  other: "อื่นๆ",
 };
 
 const TREE_STATUS_LABELS = {
@@ -110,13 +117,20 @@ export function normalizeUserRecord(record, role, approvalStatus = "pending") {
 
 export function mapFruit(record) {
   if (!record) return null;
+  const processMethod = FRUIT_PROCESS_METHOD_LABELS[record.type] || null;
+  const typeLabel = processMethod
+    ? "แปรรูป"
+    : FRUIT_TYPE_LABELS[record.type] || record.type;
   return {
     id: record.fruitId,
     fruit_id: record.fruitId,
     tree_id: record.treeId,
     broker_id: record.brokerId ?? null,
     grade: FRUIT_GRADE_LABELS[record.grade] || record.grade,
-    type: FRUIT_TYPE_LABELS[record.type] || record.type,
+    type: typeLabel,
+    process_method: processMethod,
+    process_method_code: processMethod ? record.type : null,
+    flow_type: record.type,
     weight_kg: toNumber(record.amount),
     harvest_at: record.date?.toISOString?.() ?? record.date,
     date: record.date?.toISOString?.() ?? record.date,

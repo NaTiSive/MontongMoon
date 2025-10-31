@@ -2,22 +2,28 @@ import { Router } from "express";
 import { z } from "zod";
 import prisma from "../config/prisma.js";
 import { authenticate, requireRole } from "../middleware/auth.js";
-import { mapFruit, toNumberSafe } from "../utils/formatters.js";
+import { FRUIT_PROCESS_METHOD_LABELS, mapFruit, toNumberSafe } from "../utils/formatters.js";
 
 const router = Router();
+
+const PROCESS_METHOD_INPUT = Object.fromEntries(
+  Object.entries(FRUIT_PROCESS_METHOD_LABELS).map(([code, label]) => [label, code])
+);
+
+const PROCESS_TYPE_VALUES = Object.keys(FRUIT_PROCESS_METHOD_LABELS);
 
 router.get("/stock", authenticate(), requireRole("owner"), async (req, res) => {
   const downgradedHarvest = await prisma.durianFruit.aggregate({
     _sum: { amount: true },
     where: {
       grade: "fallen",
-      NOT: { type: { in: ["process", "export"] } },
+      NOT: { type: { in: [...PROCESS_TYPE_VALUES, "export"] } },
     },
   });
 
   const processed = await prisma.durianFruit.aggregate({
     _sum: { amount: true },
-    where: { type: "process" },
+    where: { type: { in: PROCESS_TYPE_VALUES } },
   });
 
   const available = Math.max(0, toNumberSafe(downgradedHarvest._sum.amount) - toNumberSafe(processed._sum.amount));
@@ -25,7 +31,7 @@ router.get("/stock", authenticate(), requireRole("owner"), async (req, res) => {
 });
 
 const processSchema = z.object({
-  method: z.string().min(1),
+  method: z.enum(Object.keys(PROCESS_METHOD_INPUT)),
   amountKg: z.number().positive(),
   tree_id: z.string().optional(),
 });
@@ -45,12 +51,12 @@ router.post("/", authenticate(), requireRole("owner"), async (req, res) => {
     _sum: { amount: true },
     where: {
       grade: "fallen",
-      NOT: { type: { in: ["process", "export"] } },
+      NOT: { type: { in: [...PROCESS_TYPE_VALUES, "export"] } },
     },
   });
   const processedResp = await prisma.durianFruit.aggregate({
     _sum: { amount: true },
-    where: { type: "process" },
+    where: { type: { in: PROCESS_TYPE_VALUES } },
   });
 
   const available = Math.max(0, toNumberSafe(stockResp._sum.amount) - toNumberSafe(processedResp._sum.amount));
@@ -66,7 +72,7 @@ router.post("/", authenticate(), requireRole("owner"), async (req, res) => {
       brokerId: null,
       grade: "fallen",
       amount: amountKg,
-      type: "process",
+      type: PROCESS_METHOD_INPUT[method],
       date: new Date(),
     },
   });

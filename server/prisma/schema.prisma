@@ -59,9 +59,13 @@ enum FruitGrade {
 }
 
 enum FruitFlowType {
-  harvest   @map("เก็บเกี่ยว")
-  export    @map("ขนส่งออก")
-  process   @map("แปรรูป")
+  harvest @map("เก็บเกี่ยว")
+  export  @map("ขนส่งออก")
+  fry     @map("ทอด")
+  freeze  @map("แช่แข็ง")
+  jam     @map("กวน")
+  dry     @map("อบแห้ง")
+  other   @map("อื่นๆ")
 }
 
 enum ProblemScope {

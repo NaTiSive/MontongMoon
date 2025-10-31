@@ -2,15 +2,20 @@ import { Router } from "express";
 import { z } from "zod";
 import prisma from "../config/prisma.js";
 import { authenticate, requireRole } from "../middleware/auth.js";
-import { mapFruit } from "../utils/formatters.js";
+import { FRUIT_PROCESS_METHOD_LABELS, mapFruit } from "../utils/formatters.js";
 
 const router = Router();
 
 const FRUIT_TYPE_INPUT = {
   "เก็บเกี่ยว": "harvest",
   "ขนส่งออก": "export",
-  "แปรรูป": "process",
 };
+
+const PROCESS_METHOD_INPUT = Object.fromEntries(
+  Object.entries(FRUIT_PROCESS_METHOD_LABELS).map(([code, label]) => [label, code])
+);
+
+const PROCESS_TYPE_VALUES = Object.keys(FRUIT_PROCESS_METHOD_LABELS);
 
 const FRUIT_GRADE_INPUT = {
   A: "A",
@@ -31,8 +36,14 @@ router.get("/", authenticate(), async (req, res) => {
     where.brokerId = String(brokerIdParam);
   }
 
-  if (type && FRUIT_TYPE_INPUT[type]) {
-    where.type = FRUIT_TYPE_INPUT[type];
+  if (type) {
+    if (type === "แปรรูป") {
+      where.type = { in: PROCESS_TYPE_VALUES };
+    } else if (FRUIT_TYPE_INPUT[type]) {
+      where.type = FRUIT_TYPE_INPUT[type];
+    } else if (PROCESS_METHOD_INPUT[type]) {
+      where.type = PROCESS_METHOD_INPUT[type];
+    }
   }
 
   const fruits = await prisma.durianFruit.findMany({
@@ -45,7 +56,7 @@ router.get("/", authenticate(), async (req, res) => {
 
 router.get("/harvest", authenticate(), async (req, res) => {
   const { broker_id: brokerIdParam, start, end } = req.query;
-  const where = { NOT: { type: "export" } };
+  const where = { NOT: { type: { in: ["export", ...PROCESS_TYPE_VALUES] } } };
 
   if (req.user.role === "broker") {
     where.brokerId = req.user.id;
