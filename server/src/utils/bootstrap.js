@@ -1,54 +1,37 @@
 import prisma from "../config/prisma.js";
-import { hashPassword } from "./auth.js";
 
-const DEFAULT_OWNER_EMAIL = process.env.DEFAULT_OWNER_EMAIL || "owner@durianfarm.com";
-const DEFAULT_OWNER_PASSWORD = process.env.DEFAULT_OWNER_PASSWORD || "123456";
+const CREATE_APPROVAL_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS broker_approval (
+    broker_id VARCHAR(50) NOT NULL PRIMARY KEY,
+    status ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending',
+    updated_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    CONSTRAINT fk_broker_approval FOREIGN KEY (broker_id) REFERENCES broker(broker_id) ON DELETE CASCADE ON UPDATE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+`;
 
-const SAMPLE_TREES = [
-  { id: "T001", name: "ต้นทุเรียน 1", status: "ปกติ" },
-  { id: "T002", name: "ต้นทุเรียน 2", status: "ออกดอก" },
-  { id: "T003", name: "ต้นทุเรียน 3", status: "ออกผล" },
-  { id: "T004", name: "ต้นทุเรียน 4", status: "ปกติ" },
-];
+const CREATE_EXPORT_REQUEST_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS export_request (
+    id CHAR(36) NOT NULL PRIMARY KEY,
+    broker_id VARCHAR(50) NOT NULL,
+    status ENUM('pending','confirmed','rejected','withdrawn') NOT NULL DEFAULT 'pending',
+    grade_a DECIMAL(12,2) NOT NULL DEFAULT 0,
+    grade_b DECIMAL(12,2) NOT NULL DEFAULT 0,
+    grade_c DECIMAL(12,2) NOT NULL DEFAULT 0,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    CONSTRAINT fk_export_request_broker FOREIGN KEY (broker_id) REFERENCES broker(broker_id) ON DELETE CASCADE ON UPDATE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+`;
 
 export default async function bootstrap() {
-  await ensureOwnerAccount();
-  await ensureTrees();
-  await ensureDeadline();
+  await ensureBrokerApprovalTable();
+  await ensureExportRequestTable();
 }
 
-async function ensureOwnerAccount() {
-  const existing = await prisma.user.findFirst({ where: { role: "owner" } });
-  if (existing) return existing;
-
-  const passwordHash = await hashPassword(DEFAULT_OWNER_PASSWORD);
-  return prisma.user.create({
-    data: {
-      email: DEFAULT_OWNER_EMAIL,
-      passwordHash,
-      role: "owner",
-      name: "เจ้าของสวนหลัก",
-      phone: "099-000-0000",
-      address: "123 หมู่บ้านทุเรียน ต.ผลไม้ อ.เมือง จ.จันทบุรี",
-      approvalStatus: "approved",
-    },
-  });
+async function ensureBrokerApprovalTable() {
+  await prisma.$executeRawUnsafe(CREATE_APPROVAL_TABLE_SQL);
 }
 
-async function ensureTrees() {
-  const count = await prisma.tree.count();
-  if (count > 0) return;
-  await prisma.tree.createMany({ data: SAMPLE_TREES });
-}
-
-async function ensureDeadline() {
-  const existing = await prisma.ownerSetting.findUnique({ where: { id: 1 } });
-  if (existing) return;
-  const sevenDays = 7 * 24 * 60 * 60 * 1000;
-  await prisma.ownerSetting.create({
-    data: {
-      id: 1,
-      submissionDeadline: new Date(Date.now() + sevenDays),
-    },
-  });
+async function ensureExportRequestTable() {
+  await prisma.$executeRawUnsafe(CREATE_EXPORT_REQUEST_TABLE_SQL);
 }

@@ -6,6 +6,19 @@ import { mapActivity } from "../utils/formatters.js";
 
 const router = Router();
 
+const ACTIVITY_SCOPE_INPUT = {
+  "รายต้น": "tree",
+  "ภาพรวม": "overview",
+};
+
+const ACTIVITY_TYPE_INPUT = {
+  "ดูแลรักษา": "maintenance",
+  "ออกดอก": "flowering",
+  "ออกผล": "fruiting",
+  "เก็บเกี่ยว": "harvest",
+  "อื่นๆ": "other",
+};
+
 router.get("/", authenticate(), async (req, res) => {
   const { broker_id: brokerIdParam } = req.query;
   const where = {};
@@ -15,12 +28,12 @@ router.get("/", authenticate(), async (req, res) => {
   }
 
   if (brokerIdParam) {
-    where.brokerId = Number(brokerIdParam);
+    where.brokerId = String(brokerIdParam);
   }
 
   const activities = await prisma.activity.findMany({
     where,
-    orderBy: { createdAt: "desc" },
+    orderBy: { date: "desc" },
   });
 
   res.json({ data: activities.map(mapActivity) });
@@ -28,15 +41,19 @@ router.get("/", authenticate(), async (req, res) => {
 
 const createSchema = z.object({
   tree_id: z.string().min(1),
-  type: z.string().min(1),
+  type: z.enum(["รายต้น", "ภาพรวม"]),
+  activity_type: z.enum(["ดูแลรักษา", "ออกดอก", "ออกผล", "เก็บเกี่ยว", "อื่นๆ"]),
   note: z.string().optional(),
+  date: z.string().datetime().optional(),
 });
 
 router.post("/", authenticate(), requireRole("broker"), async (req, res) => {
   const parsed = createSchema.safeParse({
     tree_id: req.body.tree_id,
     type: req.body.type,
+    activity_type: req.body.activity_type,
     note: req.body.note,
+    date: req.body.date,
   });
   if (!parsed.success) {
     return res.status(400).json({ message: "ข้อมูลไม่ถูกต้อง", details: parsed.error.flatten() });
@@ -44,14 +61,27 @@ router.post("/", authenticate(), requireRole("broker"), async (req, res) => {
 
   const activity = await prisma.activity.create({
     data: {
+      activityId: await generateActivityId(),
       brokerId: req.user.id,
+      ownerId: 1,
       treeId: parsed.data.tree_id,
-      type: parsed.data.type,
+      type: ACTIVITY_SCOPE_INPUT[parsed.data.type],
+      activityType: ACTIVITY_TYPE_INPUT[parsed.data.activity_type],
       note: parsed.data.note || "",
+      date: parsed.data.date ? new Date(parsed.data.date) : new Date(),
     },
   });
 
   res.status(201).json({ data: mapActivity(activity) });
 });
+
+async function generateActivityId() {
+  const last = await prisma.activity.findMany({ orderBy: { activityId: "desc" }, take: 1 });
+  if (!last.length) return "A001";
+  const current = last[0].activityId;
+  const numeric = parseInt(current.replace(/^A/, ""), 10) || 0;
+  const next = numeric + 1;
+  return `A${next.toString().padStart(3, "0")}`;
+}
 
 export default router;

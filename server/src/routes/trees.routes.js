@@ -6,12 +6,18 @@ import { mapTree } from "../utils/formatters.js";
 
 const router = Router();
 
+const TREE_STATUS_INPUT = {
+  "ปกติ": "normal",
+  "ออกดอก": "flowering",
+  "ออกผล": "fruiting",
+};
+
 router.get("/", authenticate(), async (req, res) => {
-  const trees = await prisma.tree.findMany({ orderBy: { id: "asc" } });
+  const trees = await prisma.durianTree.findMany({ orderBy: { treeId: "asc" } });
   res.json({ data: trees.map(mapTree) });
 });
 
-const updateSchema = z.object({ status: z.string().min(1) });
+const updateSchema = z.object({ status: z.enum(["ปกติ", "ออกดอก", "ออกผล"]) });
 
 router.patch("/:id/status", authenticate(), requireRole("owner"), async (req, res) => {
   const parsed = updateSchema.safeParse({ status: req.body.status });
@@ -19,9 +25,9 @@ router.patch("/:id/status", authenticate(), requireRole("owner"), async (req, re
     return res.status(400).json({ message: "ข้อมูลไม่ถูกต้อง", details: parsed.error.flatten() });
   }
   const { id } = req.params;
-  const tree = await prisma.tree.update({
-    where: { id },
-    data: { status: parsed.data.status },
+  const tree = await prisma.durianTree.update({
+    where: { treeId: id },
+    data: { status: TREE_STATUS_INPUT[parsed.data.status] },
   });
   res.json({ data: mapTree(tree) });
 });

@@ -6,6 +6,17 @@ import { mapProblem } from "../utils/formatters.js";
 
 const router = Router();
 
+const PROBLEM_SCOPE_INPUT = {
+  "รายต้น": "tree",
+  "ภาพรวม": "overview",
+};
+
+const PROBLEM_STATUS = {
+  open: "pending",
+  progress: "inProgress",
+  resolved: "resolved",
+};
+
 router.get("/", authenticate(), async (req, res) => {
   const where = {};
   if (req.user.role === "broker") {
@@ -14,7 +25,7 @@ router.get("/", authenticate(), async (req, res) => {
 
   const problems = await prisma.problem.findMany({
     where,
-    orderBy: { createdAt: "desc" },
+    orderBy: { problemId: "desc" },
   });
 
   res.json({ data: problems.map(mapProblem) });
@@ -22,7 +33,7 @@ router.get("/", authenticate(), async (req, res) => {
 
 const createSchema = z.object({
   tree_id: z.string().optional(),
-  type: z.string().min(1),
+  type: z.enum(["รายต้น", "ภาพรวม"]),
   note_broker: z.string().optional(),
 });
 
@@ -38,11 +49,13 @@ router.post("/", authenticate(), requireRole("broker"), async (req, res) => {
 
   const problem = await prisma.problem.create({
     data: {
+      problemId: await generateProblemId(),
       brokerId: req.user.id,
-      treeId: parsed.data.tree_id || null,
-      type: parsed.data.type,
+      ownerId: 1,
+      treeId: parsed.data.tree_id || "T-001",
+      type: PROBLEM_SCOPE_INPUT[parsed.data.type],
       noteBroker: parsed.data.note_broker || "",
-      status: "เปิดปัญหา",
+      status: PROBLEM_STATUS.open,
     },
   });
 
@@ -61,11 +74,10 @@ router.patch("/:id/assign", authenticate(), requireRole("owner"), async (req, re
 
   const { id } = req.params;
   const problem = await prisma.problem.update({
-    where: { id },
+    where: { problemId: id },
     data: {
-      ownerNote: parsed.data.note,
-      status: "ระหว่างแก้ไข",
-      updatedAt: new Date(),
+      noteOwner: parsed.data.note,
+      status: PROBLEM_STATUS.progress,
     },
   });
 
@@ -75,17 +87,26 @@ router.patch("/:id/assign", authenticate(), requireRole("owner"), async (req, re
 router.patch("/:id/resolve", authenticate(), requireRole("broker"), async (req, res) => {
   const { id } = req.params;
 
-  const existing = await prisma.problem.findUnique({ where: { id } });
+  const existing = await prisma.problem.findUnique({ where: { problemId: id } });
   if (!existing || existing.brokerId !== req.user.id) {
     return res.status(404).json({ message: "ไม่พบปัญหา" });
   }
 
   const problem = await prisma.problem.update({
-    where: { id },
-    data: { status: "แก้ไขแล้ว", updatedAt: new Date() },
+    where: { problemId: id },
+    data: { status: PROBLEM_STATUS.resolved },
   });
 
   res.json({ data: mapProblem(problem) });
 });
+
+async function generateProblemId() {
+  const last = await prisma.problem.findMany({ orderBy: { problemId: "desc" }, take: 1 });
+  if (!last.length) return "P001";
+  const current = last[0].problemId;
+  const numeric = parseInt(current.replace(/^P/, ""), 10) || 0;
+  const next = numeric + 1;
+  return `P${next.toString().padStart(3, "0")}`;
+}
 
 export default router;

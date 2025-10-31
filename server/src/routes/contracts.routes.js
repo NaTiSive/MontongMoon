@@ -3,15 +3,16 @@ import { z } from "zod";
 import prisma from "../config/prisma.js";
 import { authenticate, requireRole } from "../middleware/auth.js";
 import { mapContract } from "../utils/formatters.js";
+import { getBrokerApprovalStatus, setBrokerApprovalStatus } from "../utils/brokers.js";
 
 const router = Router();
 
 router.get("/deadline", authenticate(), async (req, res) => {
-  const setting = await prisma.ownerSetting.findUnique({ where: { id: 1 } });
-  if (!setting) {
+  const owner = await prisma.owner.findUnique({ where: { ownerId: 1 } });
+  if (!owner || !owner.currentDeadlineDate) {
     return res.status(404).json({ message: "ยังไม่ตั้งค่ากำหนดส่ง" });
   }
-  res.json({ current_deadline_date: setting.submissionDeadline.toISOString() });
+  res.json({ current_deadline_date: owner.currentDeadlineDate.toISOString() });
 });
 
 const deadlineSchema = z.object({ deadline: z.string().datetime() });
@@ -22,20 +23,14 @@ router.put("/deadline", authenticate(), requireRole("owner"), async (req, res) =
     return res.status(400).json({ message: "รูปแบบวันที่ไม่ถูกต้อง", details: parsed.error.flatten() });
   }
   const dt = new Date(parsed.data.deadline);
-  const setting = await prisma.ownerSetting.upsert({
-    where: { id: 1 },
-    update: { submissionDeadline: dt },
-    create: { id: 1, submissionDeadline: dt },
+  const updated = await prisma.owner.update({
+    where: { ownerId: 1 },
+    data: {
+      currentDeadlineDate: dt,
+      lastModifiedDeadlineDate: new Date(),
+    },
   });
-  res.json({ current_deadline_date: setting.submissionDeadline.toISOString() });
-});
-
-router.get("/submission-context", authenticate(), async (req, res) => {
-  const totalTrees = await prisma.tree.count();
-  const problemsOpen = await prisma.problem.count({ where: { NOT: { status: "แก้ไขแล้ว" } } });
-  const byStatusRaw = await prisma.tree.groupBy({ by: ["status"], _count: true });
-  const byStatus = byStatusRaw.map((row) => ({ status: row.status, count: row._count }));
-  res.json({ totalTrees, problemsOpen, byStatus });
+  res.json({ current_deadline_date: updated.currentDeadlineDate.toISOString() });
 });
 
 const createSchema = z.object({
@@ -45,9 +40,16 @@ const createSchema = z.object({
     B: z.number().positive(),
     C: z.number().positive(),
   }),
-  payment_term: z.string().optional(),
+  payment_term: z.enum(["เงินสด", "โอนเงิน", "ผ่อนชำระ", "อื่นๆ"]).optional(),
   note: z.string().optional(),
 });
+
+const PAYMENT_TERM_INPUT = {
+  "เงินสด": "cash",
+  "โอนเงิน": "bankTransfer",
+  "ผ่อนชำระ": "installment",
+  "อื่นๆ": "other",
+};
 
 router.post("/", authenticate(), requireRole("broker"), async (req, res) => {
   const parsed = createSchema.safeParse({
@@ -64,21 +66,32 @@ router.post("/", authenticate(), requireRole("broker"), async (req, res) => {
     return res.status(400).json({ message: "ข้อมูลไม่ถูกต้อง", details: parsed.error.flatten() });
   }
 
-  const owner = await prisma.user.findFirst({ where: { role: "owner" } });
+  const owner = await prisma.owner.findUnique({ where: { ownerId: 1 } });
   if (!owner) return res.status(500).json({ message: "ยังไม่ได้สร้างบัญชีเจ้าของสวน" });
+
+  const contractId = await generateContractId();
+  const offerprice = `${parsed.data.offerprice_by_grade.A},${parsed.data.offerprice_by_grade.B},${parsed.data.offerprice_by_grade.C}`;
 
   const contract = await prisma.contract.create({
     data: {
+      contractId,
       brokerId: req.user.id,
-      ownerId: owner.id,
+      ownerId: owner.ownerId,
       qtyEstimate: parsed.data.qtt_estimate,
-      priceGradeA: parsed.data.offerprice_by_grade.A,
-      priceGradeB: parsed.data.offerprice_by_grade.B,
-      priceGradeC: parsed.data.offerprice_by_grade.C,
-      paymentTerm: parsed.data.payment_term || "",
+      paymentTerm: parsed.data.payment_term ? PAYMENT_TERM_INPUT[parsed.data.payment_term] : "bankTransfer",
       note: parsed.data.note || "",
-      status: "รอการพิจารณา",
+      status: "pending",
+      contractDate: new Date(),
+      offerprice,
+      prices: {
+        create: [
+          { grade: "A", price: parsed.data.offerprice_by_grade.A },
+          { grade: "B", price: parsed.data.offerprice_by_grade.B },
+          { grade: "C", price: parsed.data.offerprice_by_grade.C },
+        ],
+      },
     },
+    include: { prices: true },
   });
 
   res.status(201).json({ data: mapContract(contract) });
@@ -91,62 +104,100 @@ router.get("/", authenticate(), async (req, res) => {
     where.brokerId = req.user.id;
   }
   if (brokerIdParam) {
-    where.brokerId = Number(brokerIdParam);
+    where.brokerId = String(brokerIdParam);
   }
 
-  const contracts = await prisma.contract.findMany({ orderBy: { contractDate: "desc" }, where });
+  const contracts = await prisma.contract.findMany({
+    orderBy: { contractDate: "desc" },
+    where,
+    include: { prices: true },
+  });
   res.json({ data: contracts.map(mapContract) });
 });
 
 router.post("/:id/approve", authenticate(), requireRole("owner"), async (req, res) => {
   const { id } = req.params;
 
-  const contract = await prisma.contract.findUnique({ where: { id } });
+  const contract = await prisma.contract.findUnique({ where: { contractId: id }, include: { prices: true } });
   if (!contract) return res.status(404).json({ message: "ไม่พบข้อเสนอ" });
 
   await prisma.$transaction(async (tx) => {
     await tx.contract.updateMany({
-      where: { status: "ยอมรับ", id: { not: id } },
-      data: { status: "รอการพิจารณา" },
+      where: { status: "accepted", contractId: { not: id } },
+      data: { status: "pending" },
     });
 
-    await tx.contract.update({ where: { id }, data: { status: "ยอมรับ" } });
-    await tx.user.update({ where: { id: contract.brokerId }, data: { approvalStatus: "approved" } });
+    await tx.contract.update({ where: { contractId: id }, data: { status: "accepted" } });
+    await tx.brokerApproval.upsert({
+      where: { brokerId: contract.brokerId },
+      update: { status: "approved" },
+      create: { brokerId: contract.brokerId, status: "approved" },
+    });
   });
 
-  const updated = await prisma.contract.findUnique({ where: { id } });
+  const updated = await prisma.contract.findUnique({ where: { contractId: id }, include: { prices: true } });
   res.json({ data: mapContract(updated) });
 });
 
 router.post("/:id/reject", authenticate(), requireRole("owner"), async (req, res) => {
   const { id } = req.params;
-  const contract = await prisma.contract.update({ where: { id }, data: { status: "ปฏิเสธ" } });
+  const contract = await prisma.contract.update({
+    where: { contractId: id },
+    data: { status: "rejected" },
+    include: { prices: true },
+  });
+  await setBrokerApprovalStatus(contract.brokerId, "rejected");
   res.json({ data: mapContract(contract) });
 });
 
 router.get("/approvals/:brokerId", authenticate(), async (req, res) => {
-  const brokerId = Number(req.params.brokerId);
-  if (Number.isNaN(brokerId)) return res.status(400).json({ message: "broker_id ไม่ถูกต้อง" });
-  const broker = await prisma.user.findUnique({ where: { id: brokerId, role: "broker" } });
+  const brokerId = String(req.params.brokerId);
+  const broker = await prisma.broker.findUnique({ where: { brokerId } });
   if (!broker) return res.status(404).json({ message: "ไม่พบบัญชีผู้รับเหมา" });
-  res.json({ broker_id: brokerId, approvalStatus: broker.approvalStatus });
+  const status = await getBrokerApprovalStatus(brokerId);
+  res.json({ broker_id: brokerId, approvalStatus: status });
 });
 
 const approvalSchema = z.object({ status: z.enum(["pending", "approved", "rejected"]) });
 
 router.patch("/approvals/:brokerId", authenticate(), requireRole("owner"), async (req, res) => {
-  const brokerId = Number(req.params.brokerId);
-  if (Number.isNaN(brokerId)) return res.status(400).json({ message: "broker_id ไม่ถูกต้อง" });
+  const brokerId = String(req.params.brokerId);
   const parsed = approvalSchema.safeParse({ status: req.body.status || req.body.approvalStatus });
   if (!parsed.success) {
     return res.status(400).json({ message: "ข้อมูลไม่ถูกต้อง", details: parsed.error.flatten() });
   }
-  const broker = await prisma.user.update({ where: { id: brokerId, role: "broker" }, data: { approvalStatus: parsed.data.status } });
-  res.json({ broker_id: brokerId, approvalStatus: broker.approvalStatus });
+  const broker = await prisma.broker.findUnique({ where: { brokerId } });
+  if (!broker) return res.status(404).json({ message: "ไม่พบบัญชีผู้รับเหมา" });
+  const status = await setBrokerApprovalStatus(brokerId, parsed.data.status);
+  res.json({ broker_id: brokerId, approvalStatus: status });
 });
 
 router.get("/has-active-offer", authenticate(), async (req, res) => {
-  res.json({ hasActive: false });
+  const { broker_id: brokerIdParam } = req.query;
+  const filters = { status: "accepted" };
+
+  if (brokerIdParam) {
+    filters.brokerId = String(brokerIdParam);
+  } else if (req.user.role === "broker") {
+    filters.brokerId = req.user.id;
+  }
+
+  const contract = await prisma.contract.findFirst({
+    where: filters,
+    orderBy: { contractDate: "desc" },
+    include: { prices: true },
+  });
+
+  res.json({ hasActive: Boolean(contract), contract: mapContract(contract) });
 });
+
+async function generateContractId() {
+  const last = await prisma.contract.findMany({ orderBy: { contractId: "desc" }, take: 1 });
+  if (!last.length) return "C001";
+  const current = last[0].contractId;
+  const numeric = parseInt(current.replace(/^C/, ""), 10) || 0;
+  const next = numeric + 1;
+  return `C${next.toString().padStart(3, "0")}`;
+}
 
 export default router;

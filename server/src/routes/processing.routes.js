@@ -7,68 +7,80 @@ import { mapFruit, toNumberSafe } from "../utils/formatters.js";
 const router = Router();
 
 router.get("/stock", authenticate(), requireRole("owner"), async (req, res) => {
-  const downgradedHarvest = await prisma.fruitRecord.aggregate({
-    _sum: { weightKg: true },
+  const downgradedHarvest = await prisma.durianFruit.aggregate({
+    _sum: { amount: true },
     where: {
-      grade: "ตกเกรด",
-      NOT: { type: { in: ["แปรรูป", "ส่งออก"] } },
+      grade: "fallen",
+      NOT: { type: { in: ["process", "export"] } },
     },
   });
 
-  const processed = await prisma.fruitRecord.aggregate({
-    _sum: { weightKg: true },
-    where: { type: "แปรรูป" },
+  const processed = await prisma.durianFruit.aggregate({
+    _sum: { amount: true },
+    where: { type: "process" },
   });
 
-  const available = Math.max(0, toNumberSafe(downgradedHarvest._sum.weightKg) - toNumberSafe(processed._sum.weightKg));
+  const available = Math.max(0, toNumberSafe(downgradedHarvest._sum.amount) - toNumberSafe(processed._sum.amount));
   res.json({ downgraded_stock: available });
 });
 
 const processSchema = z.object({
   method: z.string().min(1),
   amountKg: z.number().positive(),
-  note: z.string().optional(),
+  tree_id: z.string().optional(),
 });
 
 router.post("/", authenticate(), requireRole("owner"), async (req, res) => {
   const parsed = processSchema.safeParse({
     method: req.body.method,
     amountKg: Number(req.body.amountKg ?? req.body.amount_kg ?? req.body.weight_kg),
-    note: req.body.note,
+    tree_id: req.body.tree_id,
   });
   if (!parsed.success) {
     return res.status(400).json({ message: "ข้อมูลไม่ถูกต้อง", details: parsed.error.flatten() });
   }
 
-  const { method, amountKg, note } = parsed.data;
-  const stockResp = await prisma.fruitRecord.aggregate({
-    _sum: { weightKg: true },
+  const { method, amountKg, tree_id } = parsed.data;
+  const stockResp = await prisma.durianFruit.aggregate({
+    _sum: { amount: true },
     where: {
-      grade: "ตกเกรด",
-      NOT: { type: { in: ["แปรรูป", "ส่งออก"] } },
+      grade: "fallen",
+      NOT: { type: { in: ["process", "export"] } },
     },
   });
-  const processedResp = await prisma.fruitRecord.aggregate({
-    _sum: { weightKg: true },
-    where: { type: "แปรรูป" },
+  const processedResp = await prisma.durianFruit.aggregate({
+    _sum: { amount: true },
+    where: { type: "process" },
   });
 
-  const available = Math.max(0, toNumberSafe(stockResp._sum.weightKg) - toNumberSafe(processedResp._sum.weightKg));
+  const available = Math.max(0, toNumberSafe(stockResp._sum.amount) - toNumberSafe(processedResp._sum.amount));
   if (amountKg > available) {
     return res.status(400).json({ message: "ปริมาณเกินกว่าทุเรียนตกเกรดคงเหลือ" });
   }
 
-  const record = await prisma.fruitRecord.create({
+  const record = await prisma.durianFruit.create({
     data: {
-      grade: "ตกเกรด",
-      type: "แปรรูป",
-      weightKg: amountKg,
-      processMethod: method,
-      note: note || "",
+      fruitId: await generateFruitId(),
+      treeId: tree_id || "T-001",
+      ownerId: 1,
+      brokerId: null,
+      grade: "fallen",
+      amount: amountKg,
+      type: "process",
+      date: new Date(),
     },
   });
 
   res.status(201).json({ data: mapFruit(record) });
 });
+
+async function generateFruitId() {
+  const last = await prisma.durianFruit.findMany({ orderBy: { fruitId: "desc" }, take: 1 });
+  if (!last.length) return "F001";
+  const current = last[0].fruitId;
+  const numeric = parseInt(current.replace(/^F/, ""), 10) || 0;
+  const next = numeric + 1;
+  return `F${next.toString().padStart(3, "0")}`;
+}
 
 export default router;

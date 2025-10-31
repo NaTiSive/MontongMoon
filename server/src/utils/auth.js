@@ -11,7 +11,15 @@ export async function hashPassword(password) {
 
 export async function comparePassword(password, hash) {
   if (!hash) return false;
-  return bcrypt.compare(password, hash);
+  if (hash.length < 50) {
+    return hash === password;
+  }
+  try {
+    return await bcrypt.compare(password, hash);
+  } catch (err) {
+    console.error("comparePassword error", err);
+    return false;
+  }
 }
 
 export function signToken(payload) {
