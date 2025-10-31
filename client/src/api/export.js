@@ -6,7 +6,12 @@ export const GRADES = ["A", "B", "C", "ตกเกรด"];
 export async function getAvailableStockByGrade({ broker_id = null } = {}) {
   const query = broker_id ? `?broker_id=${broker_id}` : "";
   const res = await request(`/export/stock${query}`);
-  return res?.stock ?? { A: 0, B: 0, C: 0 };
+  const stock = res?.stock || {};
+  return {
+    A: Number(stock.A) || 0,
+    B: Number(stock.B) || 0,
+    C: Number(stock.C) || 0,
+  };
 }
 
 export async function submitExportRequest({ broker_id, grades }) {

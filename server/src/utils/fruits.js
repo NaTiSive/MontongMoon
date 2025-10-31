@@ -30,17 +30,16 @@ export async function sumHarvestByGrade({ ownerId = 1, brokerId = null, treeId =
   const dateFilter = buildDateFilter(start, end);
   if (dateFilter) where.date = dateFilter;
 
-  const grouped = await prisma.durianFruit.groupBy({
-    by: ["grade"],
-    _sum: { amount: true },
+  const records = await prisma.durianFruit.findMany({
     where,
+    select: { grade: true, amount: true },
   });
 
   const summary = createEmptyGradeSummary();
-  for (const row of grouped) {
-    const label = FRUIT_GRADE_LABELS[row.grade] || row.grade;
+  for (const record of records) {
+    const label = FRUIT_GRADE_LABELS[record.grade] || record.grade;
     if (!Object.prototype.hasOwnProperty.call(summary, label)) continue;
-    summary[label] += toNumber(row._sum?.amount);
+    summary[label] += toNumber(record.amount);
   }
 
   const normalized = Object.fromEntries(
@@ -57,20 +56,21 @@ export async function computeNetStockByGrade({ ownerId = 1, brokerId = null, sta
   const dateFilter = buildDateFilter(start, end);
   if (dateFilter) where.date = dateFilter;
 
-  const grouped = await prisma.durianFruit.groupBy({
-    by: ["grade", "type"],
-    _sum: { amount: true },
+  const records = await prisma.durianFruit.findMany({
     where,
+    select: { grade: true, amount: true, type: true },
   });
 
   const summary = createEmptyGradeSummary();
-  for (const row of grouped) {
-    const label = FRUIT_GRADE_LABELS[row.grade] || row.grade;
-    const amount = toNumber(row._sum?.amount);
-    if (row.type === "harvest") {
-      summary[label] += amount;
-    } else if (row.type === "export" || FRUIT_PROCESS_TYPE_CODES.includes(row.type)) {
-      summary[label] -= amount;
+  for (const record of records) {
+    const label = FRUIT_GRADE_LABELS[record.grade] || record.grade;
+    if (!Object.prototype.hasOwnProperty.call(summary, label)) continue;
+
+    const weight = toNumber(record.amount);
+    if (record.type === "harvest") {
+      summary[label] += weight;
+    } else if (record.type === "export" || FRUIT_PROCESS_TYPE_CODES.includes(record.type)) {
+      summary[label] -= weight;
     }
   }
 
