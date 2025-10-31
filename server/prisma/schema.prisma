@@ -25,4 +25,27 @@ model Broker {
   approvalStatus String   @default("pending")
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+
+  // ✅ ฝั่งตรงข้ามของความสัมพันธ์กับ Contract
+  contracts Contract[] @relation("BrokerContracts")
+}
+
+enum ContractStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+model Contract {
+  id            String         @id @default(uuid())
+  brokerId      String
+  broker        Broker         @relation("BrokerContracts", fields: [brokerId], references: [id], onDelete: Cascade)
+  qtyEstimateKg Int
+  priceByGrade  Json
+  paymentTerm   String
+  note          String?
+  status        ContractStatus @default(PENDING)
+  contractDate  DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
 }

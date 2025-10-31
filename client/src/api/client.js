@@ -57,3 +57,14 @@ export async function apiUpload(path, file, fields = {}) {
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
+
+// src/api/client.js
+
+export function setAuthToken(token) {
+  if (token) {
+    localStorage.setItem("mm:token", token);
+  } else {
+    localStorage.removeItem("mm:token");
+  }
+}
+

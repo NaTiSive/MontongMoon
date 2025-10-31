@@ -1,65 +1,94 @@
 // src/api/fruits.js
-import { apiGet, apiPost } from "./client";
+// แหล่งข้อมูล: ใช้ localStorage ชั่วคราวให้หน้า UI ทำงานได้ทันที
+// (ภายหลังค่อยสลับไปเรียก Backend /fruits ได้)
 
-// Export รายชื่อเกรดให้ UI เดิมใช้เหมือนเดิม
-export const GRADES = ["A", "B", "C", "ตกเกรด"]; // "ตกเกรด" = REJECT
+const KEY = "mm:fruits@v1";
 
-function mapGradeToServer(g) {
-  return g === "ตกเกรด" ? "REJECT" : g; // A/B/C/REJECT
+// ✅ export รายชื่อเกรดมาตรฐาน (ให้ Owner/Broker ใช้ได้ทุกหน้า)
+export const GRADES = ["A", "B", "C", "ตกเกรด"];
+
+// ---------- utils ----------
+function load() {
+  try {
+    const raw = localStorage.getItem(KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
 }
-function mapGradeFromServer(g) {
-  return g === "REJECT" ? "ตกเกรด" : g;
+
+function save(arr) {
+  localStorage.setItem(KEY, JSON.stringify(arr || []));
 }
 
-// ✅ เพิ่มผลผลิตใหม่ (type = HARVEST)
-export async function createHarvestFruitRecord({ broker_id, grade, weight_kg, note }) {
-  const payload = {
-    brokerId: String(broker_id),
-    grade: mapGradeToServer(grade),
-    amountKg: Number(weight_kg),
+function uuid() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+// ---------- CRUD (local mock) ----------
+
+// ✅ บันทึกผลผลิต (type: เก็บเกี่ยว)
+export function createHarvestFruitRecord(payload) {
+  const { broker_id, grade, weight_kg, note } = payload || {};
+  const w = Number(weight_kg);
+  if (!grade || !GRADES.includes(grade)) throw new Error("เกรดไม่ถูกต้อง");
+  if (!w || w <= 0) throw new Error("น้ำหนักต้องมากกว่า 0");
+
+  const rec = {
+    id: uuid(),
+    broker_id: broker_id ?? null,
+    grade,
+    weight_kg: w,
     note: note || "",
+    harvest_at: new Date().toISOString(),
+    type: "เก็บเกี่ยว", // แยกชนิดเก็บเกี่ยวกับส่งออก
   };
-  const rec = await apiPost("/fruits/harvest", payload);
-  // map กลับให้เหมือน shape เดิมในตาราง
-  return {
-    id: rec.id,
-    broker_id,
-    grade: mapGradeFromServer(rec.grade),
-    weight_kg: rec.amountKg,
-    note: rec.note || "",
-    harvest_at: rec.date, // ISO
-    type: "เก็บเกี่ยว",
-  };
+
+  const all = load();
+  all.unshift(rec);
+  save(all);
+  return rec;
 }
 
-// ✅ ดึงเฉพาะของ broker (เฉพาะ HARVEST)
-export async function listFruitsByBrokerHarvestOnly(broker_id) {
-  const rows = await apiGet(`/fruits?type=HARVEST&brokerId=${broker_id}`);
-  return rows.map((r) => ({
-    id: r.id,
-    broker_id,
-    grade: mapGradeFromServer(r.grade),
-    weight_kg: r.amountKg,
-    note: r.note || "",
-    harvest_at: r.date,
-    type: "เก็บเกี่ยว",
-  }));
+// ✅ ดึงทั้งหมด (เก็บเกี่ยว + แปรรูป + ส่งออก)
+export function listFruits() {
+  return load();
 }
 
-// ✅ ดึงตามช่วงวัน (เฉพาะ HARVEST)
-export async function listFruitsByDateRangeHarvestOnly({ startISO, endISO }) {
-  const qs = new URLSearchParams();
-  qs.set("type", "HARVEST");
-  if (startISO) qs.set("start", startISO);
-  if (endISO) qs.set("end", endISO);
-  const rows = await apiGet(`/fruits?${qs.toString()}`);
-  return rows.map((r) => ({
-    id: r.id,
-    broker_id: r.brokerId,
-    grade: mapGradeFromServer(r.grade),
-    weight_kg: r.amountKg,
-    note: r.note || "",
-    harvest_at: r.date,
-    type: "เก็บเกี่ยว",
-  }));
+// ✅ ดึงเฉพาะ "เก็บเกี่ยว" (owner page ใช้ตัวนี้)
+export function listHarvestOnly() {
+  // ไม่รวมที่ถูกตัดสต็อกด้วย type="ส่งออก"
+  return load().filter((r) => r.type !== "ส่งออก");
+}
+
+// ✅ ดึงเฉพาะ broker ที่ "เก็บเกี่ยว"
+export function listFruitsByBrokerHarvestOnly(broker_id) {
+  return load().filter(
+    (r) => String(r.broker_id) === String(broker_id) && r.type !== "ส่งออก"
+  );
+}
+
+// ✅ ดึงเฉพาะช่วงเวลา (เก็บเกี่ยวเท่านั้น)
+export function listFruitsByDateRangeHarvestOnly({ startISO, endISO } = {}) {
+  let list = load().filter((r) => r.type !== "ส่งออก");
+  if (startISO) list = list.filter((x) => new Date(x.harvest_at) >= new Date(startISO));
+  if (endISO) list = list.filter((x) => new Date(x.harvest_at) <= new Date(endISO));
+  return list;
+}
+
+// ✅ ฟังก์ชันทั่วไป
+export function listFruitsByBroker(broker_id) {
+  return load().filter((x) => String(x.broker_id) === String(broker_id));
+}
+
+// (option) helper ลบทั้งชุด mock
+export function __resetFruitsMock() {
+  save([]);
 }

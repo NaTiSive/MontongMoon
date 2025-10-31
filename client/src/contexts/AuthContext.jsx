@@ -1,98 +1,113 @@
+// src/contexts/AuthContext.jsx
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { getBrokerApproval } from "../api/contracts";
-import { setAuthToken } from '../api/client';
+import { setAuthToken } from "../api/client";
+
+const LS_USER_KEY = "user";       // เก็บ user object
+const LS_TOKEN_KEY = "mm:token";  // เก็บ JWT
 
 const AuthCtx = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true); // ✅ รอโหลดข้อมูลก่อน
+  const [loading, setLoading] = useState(true);
 
+  // โหลด user + token จาก localStorage เมื่อเริ่มแอป
   useEffect(() => {
     try {
-      const raw = localStorage.getItem("user");
+      const raw = localStorage.getItem(LS_USER_KEY);
+      const token = localStorage.getItem(LS_TOKEN_KEY);
+
+      if (token) setAuthToken(token); // ติด Authorization header ให้ client
+
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed && parsed.email) setUser(parsed);
       }
     } catch (err) {
       console.error("Error reading user:", err);
-      localStorage.removeItem("user");
+      localStorage.removeItem(LS_USER_KEY);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  // ✅ login & save user
-  const login = async (userObj) => {
+  // login: รับ user object จากหน้า Login.jsx แล้วเซฟ
+  const login = (userObj) => {
     setUser(userObj);
-    localStorage.setItem("user", JSON.stringify(userObj));
+    localStorage.setItem(LS_USER_KEY, JSON.stringify(userObj));
+
+    // หน้า Login.jsx เป็นคน set token ลง LS แล้ว
+    const token = localStorage.getItem(LS_TOKEN_KEY);
+    if (token) setAuthToken(token);
   };
 
-  // ✅ update user profile
-// src/contexts/AuthContext.jsx (เฉพาะส่วนฟังก์ชัน updateUser)
-const updateUser = (newData) => {
-  setUser((prev) => {
-    if (!prev) return prev;
-    const updated = { ...prev, ...newData };
-
-    // ✅ เขียนกลับ localStorage user ปัจจุบัน
-    localStorage.setItem("mm:user@v1", JSON.stringify(updated));
-
-    // ✅ ถ้าเป็น broker → อัปเดตใน mm:brokers@v1 ด้วย
-    if (updated.role === "broker" && updated.broker_id != null) {
-      try {
-        const arr = JSON.parse(localStorage.getItem("mm:brokers@v1") || "[]");
-        const i = arr.findIndex((b) => b.broker_id === updated.broker_id);
-        if (i !== -1) {
-          arr[i] = { ...arr[i], ...newData };
-          localStorage.setItem("mm:brokers@v1", JSON.stringify(arr));
-        }
-      } catch (e) {
-        console.warn("updateUser broker save failed:", e);
-      }
-    }
-
-    return updated;
-  });
-};
-
-
-  // ✅ auto-sync broker approvalStatus (เมื่อโฟกัสหน้าต่าง หรือเป็นระยะ)
-  useEffect(() => {
-    if (user?.role !== "broker" || user?.broker_id == null) return;
-    const sync = () => {
-      try {
-        const latest = getBrokerApproval(user.broker_id);
-        if (latest && latest !== user.approvalStatus) {
-          updateUser({ approvalStatus: latest });
-        }
-      } catch {}
-    };
-    // sync เมื่อกลับมาโฟกัส + interval สั้น ๆ
-    window.addEventListener("focus", sync);
-    const t = setInterval(sync, 2000);
-    sync(); // เรียกทันทีรอบหนึ่ง
-    return () => {
-      window.removeEventListener("focus", sync);
-      clearInterval(t);
-    };
-  }, [user?.role, user?.broker_id, user?.approvalStatus]);
-
-  // ✅ update approval status (owner→broker)
-  const updateApproval = (status) => {
+  // อัปเดตข้อมูล user ในแอป + localStorage
+  const updateUser = (newData) => {
     setUser((prev) => {
-      const updated = { ...prev, approvalStatus: status };
-      localStorage.setItem("user", JSON.stringify(updated));
+      if (!prev) return prev;
+      const updated = { ...prev, ...newData };
+      localStorage.setItem(LS_USER_KEY, JSON.stringify(updated));
       return updated;
     });
   };
 
-  // ✅ logout
+  // อัปเดตเฉพาะ approvalStatus (owner อนุมัติ/ปฏิเสธ broker)
+  const updateApproval = (status) => {
+    setUser((prev) => {
+      if (!prev) return prev;
+      const updated = { ...prev, approvalStatus: status };
+      localStorage.setItem(LS_USER_KEY, JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  // logout
   const logout = () => {
     setUser(null);
-    localStorage.removeItem("user");
+    localStorage.removeItem(LS_USER_KEY);
+    localStorage.removeItem(LS_TOKEN_KEY);
+    setAuthToken(null);
   };
+
+  // หากเป็น broker ให้รีเฟรช approvalStatus จาก backend เป็นระยะ
+  useEffect(() => {
+    if (!user || user.role !== "broker") return;
+
+    let stop = false;
+
+    const sync = async () => {
+      try {
+        const api = import.meta.env.VITE_API_URL || "http://localhost:4000";
+        const token = localStorage.getItem(LS_TOKEN_KEY);
+        if (!token) return;
+
+        const res = await fetch(`${api}/users/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return;
+        const payload = await res.json();
+        const latest = payload?.user?.approvalStatus;
+
+        if (!stop && latest && latest !== user.approvalStatus) {
+          updateUser({ approvalStatus: latest });
+        }
+      } catch (e) {
+        // เงียบไว้ก็ได้ ไม่ต้อง alert
+      }
+    };
+
+    // sync ทันที + เมื่อโฟกัส + interval
+    sync();
+    const onFocus = () => sync();
+    window.addEventListener("focus", onFocus);
+    const t = setInterval(sync, 3000);
+
+    return () => {
+      stop = true;
+      window.removeEventListener("focus", onFocus);
+      clearInterval(t);
+    };
+  }, [user?.role, user?.approvalStatus]);
 
   return (
     <AuthCtx.Provider
@@ -107,33 +122,4 @@ export function useAuth() {
   const ctx = useContext(AuthCtx);
   if (!ctx) throw new Error("useAuth must be used within AuthProvider");
   return ctx;
-}
-
-async function loginOwner(email, password) {
-  const r = await fetch(`${import.meta.env.VITE_API_URL}/auth/login-owner`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password })
-  });
-  if (!r.ok) throw new Error('Invalid credentials');
-  const data = await r.json();              // { token, role:'OWNER', userId, name }
-  setAuthToken(data.token);
-  // เก็บ user เดิมของคุณตามโครงเก่า:
-  const user = { id: data.userId, name: data.name, role: 'owner', approvalStatus: 'approved' };
-  localStorage.setItem('mm:user', JSON.stringify(user));
-  return user;
-}
-
-async function loginBroker(email, password) {
-  const r = await fetch(`${import.meta.env.VITE_API_URL}/auth/login-broker`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password })
-  });
-  if (!r.ok) throw new Error('Invalid credentials');
-  const data = await r.json();              // { token, role:'BROKER', userId, name, approvalStatus }
-  setAuthToken(data.token);
-  const user = { id: data.userId, name: data.name, role: 'broker', approvalStatus: data.approvalStatus };
-  localStorage.setItem('mm:user', JSON.stringify(user));
-  return user;
 }

@@ -5,7 +5,8 @@ import HeaderWrapper from "../../components/HeaderWrapper";
 import Sidebar from "../../components/Sidebar";
 import Card from "../../components/Card";
 import PrimaryButton from "../../components/PrimaryButton";
-import { listBrokerContracts } from "../../api/contracts"; // ✅ ใช้ฟังก์ชันจริงที่มีใน API
+import { listBrokerContracts } from "../../api/contracts";
+ // ✅ ใช้ฟังก์ชันจริงที่มีใน API
 import { useNavigate } from "react-router-dom";
 
 export default function BrokerDashboard() {
@@ -17,14 +18,14 @@ export default function BrokerDashboard() {
   useEffect(() => {
     async function load() {
       try {
-        const mine = await listBrokerContracts(user?.broker_id);
+        const mine = await listBrokerContracts(user?.id);
         setMyOffers(mine || []);
       } catch (err) {
         console.error("Error loading contracts:", err);
       }
     }
-    if (user?.broker_id) load();
-  }, [user?.broker_id]);
+   if (user?.id) load();
+   }, [user?.id]);
 
   // สถิติ
   const stat = useMemo(() => {
