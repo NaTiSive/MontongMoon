@@ -49,8 +49,16 @@ function ApprovalGuard() {
   if (user.role !== "broker") return <Navigate to={`/${user.role}/dashboard`} replace />;
 
   const approval = String(user.approvalStatus ?? "").trim().toLowerCase();
-  const approvedStates = ["approved", "อนุมัติ", "อนุมัติแล้ว", "ยอมรับ"];
-  if (!approvedStates.includes(approval)) {
+  const approvedStates = [
+    "approved",
+    "อนุมัติ",
+    "อนุมัติแล้ว",
+    "ผ่านการอนุมัติ",
+    "ยอมรับ",
+    "ยืนยัน",
+  ];
+  const isApproved = approvedStates.some((state) => approval.includes(state));
+  if (!isApproved) {
     return <Navigate to="/broker/dashboard" replace />;
   }
   return <Outlet />;
