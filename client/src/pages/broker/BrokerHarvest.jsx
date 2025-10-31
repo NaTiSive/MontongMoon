@@ -73,7 +73,7 @@ export default function BrokerHarvest() {
     return () => {
       alive = false;
     };
-  }, [user?.broker_id]);
+  }, [user?.broker_id, startDate, endDate, treeFilter]);
 
   // ─────────── โหลดข้อมูล ───────────
   useEffect(() => {
