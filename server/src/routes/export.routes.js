@@ -11,7 +11,9 @@ const EXPORT_GRADES = ["A", "B", "C"];
 const EPSILON = 1e-6;
 
 async function getStockByGrade(brokerId) {
-  const { by_grade } = await computeNetStockByGrade({ brokerId, ownerId: 1 });
+  // เดิมล็อก ownerId: 1 -> ทำให้สต็อก broker เป็นศูนย์เสมอ
+  // ใช้แค่ brokerId; owner ไม่ต้องกรอง
+  const { by_grade } = await computeNetStockByGrade({ brokerId, ownerId: null });
   const grades = { A: 0, B: 0, C: 0 };
   for (const grade of EXPORT_GRADES) {
     grades[grade] = Math.max(0, Number(by_grade?.[grade] ?? 0));
@@ -219,7 +221,7 @@ router.post("/requests", authenticate(), requireRole("broker"), async (req, res)
   }
 
   const { grades } = parsed.data;
-  if (EXPORT_GRADES.every((grade) => Number(grades[grade] || 0) <= EPSILON)) {
+  if (["A", "B", "C"].every((g) => Number(grades[g] || 0) <= EPSILON)) {
     return res.status(400).json({ message: "น้ำหนักอย่างน้อยหนึ่งเกรดต้องมากกว่า 0" });
   }
 

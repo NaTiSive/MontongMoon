@@ -12,20 +12,23 @@ import { sumHarvestByGrade } from "../utils/fruits.js";
 
 const router = Router();
 
+// label ไทย -> enum Prisma (ซึ่ง map เป็นไทยใน DB แล้ว)
 const FRUIT_TYPE_INPUT = {
   "เก็บเกี่ยว": FruitFlowType.harvest,
   "ขนส่งออก": FruitFlowType.export,
 };
 
+// label กระบวนการ (ไทย) -> enum Prisma
 const PROCESS_METHOD_INPUT = Object.fromEntries(
-  Object.entries(FRUIT_PROCESS_METHOD_LABELS)
+  Object.entries(FRUIT_PROCESS_METHOD_LABELS) // { fry:"ทอด", freeze:"แช่แข็ง", ... }
     .map(([code, label]) => [label, FruitFlowType[code]])
-    .filter(([, value]) => Boolean(value))
+    .filter(([, val]) => !!val)
 );
 
-const PROCESS_TYPE_VALUES = FRUIT_PROCESS_TYPE_CODES.map((code) => FruitFlowType[code]).filter(
-  Boolean
-);
+// รายการ enum กระบวนการ (อังกฤษ) -> Prisma enum list
+const PROCESS_TYPE_VALUES = FRUIT_PROCESS_TYPE_CODES // ["fry","freeze","jam","dry","other"]
+  .map((code) => FruitFlowType[code])
+  .filter(Boolean);
 
 const FRUIT_GRADE_INPUT = {
   A: "A",
@@ -34,17 +37,20 @@ const FRUIT_GRADE_INPUT = {
   "ตกเกรด": "fallen",
 };
 
+function getBrokerIdFromUser(user) {
+  if (!user) return null;
+  return user.broker_id || user.id || null;
+}
+
+// GET /api/fruits
 router.get("/", authenticate(), async (req, res) => {
   const { broker_id: brokerIdParam, type } = req.query;
   const where = {};
 
-  if (req.user.role === "broker") {
-    where.brokerId = req.user.id;
+  if (req.user?.role === "broker") {
+    where.brokerId = getBrokerIdFromUser(req.user);
   }
-
-  if (brokerIdParam) {
-    where.brokerId = String(brokerIdParam);
-  }
+  if (brokerIdParam) where.brokerId = String(brokerIdParam);
 
   if (type) {
     if (type === "แปรรูป") {
@@ -64,33 +70,24 @@ router.get("/", authenticate(), async (req, res) => {
   res.json({ data: fruits.map(mapFruit) });
 });
 
+// GET /api/fruits/harvest
 router.get("/harvest", authenticate(), async (req, res) => {
   const { broker_id: brokerIdParam, tree_id: treeIdParam, start, end } = req.query;
   const where = { type: FruitFlowType.harvest };
 
-  if (req.user.role === "broker") {
-    where.brokerId = req.user.id;
+  if (req.user?.role === "broker") {
+    where.brokerId = getBrokerIdFromUser(req.user);
   }
-
-  if (brokerIdParam) {
-    where.brokerId = String(brokerIdParam);
-  }
-
-  if (treeIdParam) {
-    where.treeId = String(treeIdParam);
-  }
+  if (brokerIdParam) where.brokerId = String(brokerIdParam);
+  if (treeIdParam) where.treeId = String(treeIdParam);
 
   if (start) {
-    const startDate = new Date(start);
-    if (!Number.isNaN(startDate.getTime())) {
-      where.date = { ...(where.date || {}), gte: startDate };
-    }
+    const d = new Date(start);
+    if (!Number.isNaN(d.getTime())) where.date = { ...(where.date || {}), gte: d };
   }
   if (end) {
-    const endDate = new Date(end);
-    if (!Number.isNaN(endDate.getTime())) {
-      where.date = { ...(where.date || {}), lte: endDate };
-    }
+    const d = new Date(end);
+    if (!Number.isNaN(d.getTime())) where.date = { ...(where.date || {}), lte: d };
   }
 
   const fruits = await prisma.durianFruit.findMany({
@@ -101,38 +98,37 @@ router.get("/harvest", authenticate(), async (req, res) => {
   res.json({ data: fruits.map(mapFruit) });
 });
 
+// GET /api/fruits/harvest/summary
 router.get("/harvest/summary", authenticate(), async (req, res) => {
   const { broker_id: brokerIdParam, tree_id: treeIdParam, start, end } = req.query;
-  let brokerId = null;
-  if (req.user.role === "broker") {
-    brokerId = req.user.id;
-  }
-  if (brokerIdParam) {
-    brokerId = String(brokerIdParam);
-  }
 
-  let treeId = null;
-  if (treeIdParam) {
-    treeId = String(treeIdParam);
-  }
+  let brokerId = null;
+  if (req.user?.role === "broker") brokerId = getBrokerIdFromUser(req.user);
+  if (brokerIdParam) brokerId = String(brokerIdParam);
+
+  const treeId = treeIdParam ? String(treeIdParam) : null;
+  const ownerId = req.user?.role === "owner" ? req.user.id : null;
 
   let startDate;
   if (start) {
-    const parsed = new Date(start);
-    if (!Number.isNaN(parsed.getTime())) {
-      startDate = parsed;
-    }
+    const d = new Date(start);
+    if (!Number.isNaN(d.getTime())) startDate = d;
   }
-
   let endDate;
   if (end) {
-    const parsed = new Date(end);
-    if (!Number.isNaN(parsed.getTime())) {
-      endDate = parsed;
-    }
+    const d = new Date(end);
+    if (!Number.isNaN(d.getTime())) endDate = d;
   }
 
-  const summary = await sumHarvestByGrade({ brokerId, ownerId: 1, treeId, start: startDate, end: endDate });
+  const summary = await sumHarvestByGrade({
+    brokerId,
+    ownerId,
+    treeId,
+    start: startDate,
+    end: endDate,
+    // ภายใน util ควรกำหนด where.type = FruitFlowType.harvest ด้วย
+  });
+
   res.json({ summary });
 });
 
@@ -143,6 +139,7 @@ const harvestSchema = z.object({
   date: z.string().datetime().optional(),
 });
 
+// POST /api/fruits/harvest
 router.post("/harvest", authenticate(), requireRole("broker", "owner"), async (req, res) => {
   const parsed = harvestSchema.safeParse({
     tree_id: req.body.tree_id,
@@ -155,7 +152,12 @@ router.post("/harvest", authenticate(), requireRole("broker", "owner"), async (r
   }
 
   const { tree_id, grade, weight_kg, date } = parsed.data;
-  const brokerId = req.user.role === "broker" ? req.user.id : req.body.broker_id ? String(req.body.broker_id) : null;
+  const brokerId =
+    req.user?.role === "broker"
+      ? getBrokerIdFromUser(req.user)
+      : req.body.broker_id
+      ? String(req.body.broker_id)
+      : null;
 
   const record = await prisma.durianFruit.create({
     data: {
@@ -163,7 +165,7 @@ router.post("/harvest", authenticate(), requireRole("broker", "owner"), async (r
       treeId: tree_id,
       ownerId: 1,
       brokerId,
-      grade: FRUIT_GRADE_INPUT[grade],
+      grade: FRUIT_GRADE_INPUT[grade], // "A"|"B"|"C"|"fallen"
       amount: weight_kg,
       type: FruitFlowType.harvest,
       date: date ? new Date(date) : new Date(),
@@ -174,12 +176,13 @@ router.post("/harvest", authenticate(), requireRole("broker", "owner"), async (r
 });
 
 async function generateFruitId() {
-  const last = await prisma.durianFruit.findMany({ orderBy: { fruitId: "desc" }, take: 1 });
+  const last = await prisma.durianFruit.findMany({
+    orderBy: { fruitId: "desc" },
+    take: 1,
+  });
   if (!last.length) return "F001";
-  const current = last[0].fruitId;
-  const numeric = parseInt(current.replace(/^F/, ""), 10) || 0;
-  const next = numeric + 1;
-  return `F${next.toString().padStart(3, "0")}`;
+  const numeric = parseInt(String(last[0].fruitId).replace(/^F/, ""), 10) || 0;
+  return `F${String(numeric + 1).padStart(3, "0")}`;
 }
 
 export default router;

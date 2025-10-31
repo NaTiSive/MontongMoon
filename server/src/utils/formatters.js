@@ -31,12 +31,19 @@ const ACTIVITY_TYPE_LABELS = {
   other: "อื่นๆ",
 };
 
-const FRUIT_TYPE_LABELS = {
+// ✅ ปรับให้รองรับ ENUM ภาษาไทยใหม่ทั้งหมด
+export const FRUIT_TYPE_LABELS = {
   harvest: "เก็บเกี่ยว",
   export: "ขนส่งออก",
+  fry: "ทอด",
+  freeze: "แช่แข็ง",
+  jam: "กวน",
+  dry: "อบแห้ง",
+  other: "อื่นๆ",
 };
 
-const FRUIT_FLOW_CODE_BY_LABEL = {
+// ✅ ขยาย mapping code <-> label (ไทย↔อังกฤษ)
+export const FRUIT_FLOW_CODE_BY_LABEL = {
   harvest: "harvest",
   export: "export",
   fry: "fry",
@@ -53,10 +60,30 @@ const FRUIT_FLOW_CODE_BY_LABEL = {
   "อื่นๆ": "other",
 };
 
+// ✅ ฟังก์ชัน normalize สำหรับ FE/BE
 export function normalizeFruitFlowCode(value) {
   if (value == null) return null;
   const key = String(value);
   return FRUIT_FLOW_CODE_BY_LABEL[key] ?? key;
+}
+
+// ✅ ฟังก์ชัน map ภาษาอังกฤษ→ไทย (ใช้ใน backend)
+export function toDbType(apiType) {
+  if (!apiType) return null;
+  const t = String(apiType).trim().toLowerCase();
+  if (t === "harvest") return "เก็บเกี่ยว";
+  if (t === "export") return "ขนส่งออก";
+  if (t === "fry" || t === "process" || t === "processed") return "ทอด";
+  if (t === "freeze") return "แช่แข็ง";
+  if (t === "jam") return "กวน";
+  if (t === "dry") return "อบแห้ง";
+  return apiType;
+}
+
+// ✅ ฟังก์ชัน normalize จาก DB -> FE (ถ้า backend ส่งข้อมูลไทยอยู่แล้ว)
+export function normalizeType(dbType) {
+  if (!dbType) return null;
+  return String(dbType).trim();
 }
 
 export const FRUIT_PROCESS_METHOD_LABELS = {
@@ -131,21 +158,19 @@ export function normalizeUserRecord(record, role, approvalStatus = "pending") {
     address: record.address,
     approvalStatus,
   };
-  if (role === "broker") {
-    base.broker_id = record.brokerId;
-  }
-  if (role === "owner") {
-    base.owner_id = record.ownerId;
-  }
+  if (role === "broker") base.broker_id = record.brokerId;
+  if (role === "owner") base.owner_id = record.ownerId;
   return base;
 }
 
+/** ✅ mapFruit รองรับทั้งภาษาไทยและอังกฤษ */
 export function mapFruit(record) {
   if (!record) return null;
-  const processMethod = FRUIT_PROCESS_METHOD_LABELS[record.type] || null;
+  const code = normalizeFruitFlowCode(record.type);
+  const processMethod = FRUIT_PROCESS_METHOD_LABELS[code] || null;
   const typeLabel = processMethod
     ? "แปรรูป"
-    : FRUIT_TYPE_LABELS[record.type] || record.type;
+    : FRUIT_TYPE_LABELS[code] || record.type;
   return {
     id: record.fruitId,
     fruit_id: record.fruitId,
@@ -154,8 +179,8 @@ export function mapFruit(record) {
     grade: FRUIT_GRADE_LABELS[record.grade] || record.grade,
     type: typeLabel,
     process_method: processMethod,
-    process_method_code: processMethod ? record.type : null,
-    flow_type: record.type,
+    process_method_code: processMethod ? code : null,
+    flow_type: code,
     weight_kg: toNumber(record.amount),
     harvest_at: record.date?.toISOString?.() ?? record.date,
     date: record.date?.toISOString?.() ?? record.date,
@@ -167,7 +192,7 @@ function sumGradesFromFruits(fruits = []) {
   for (const item of fruits) {
     const fruit = item?.fruit ?? item;
     if (!fruit) continue;
-    if (fruit.type !== "export") continue;
+    if (fruit.type !== "ขนส่งออก" && fruit.type !== "export") continue;
     if (!Object.prototype.hasOwnProperty.call(totals, fruit.grade)) continue;
     totals[fruit.grade] += toNumber(fruit.amount);
   }
@@ -176,13 +201,14 @@ function sumGradesFromFruits(fruits = []) {
 
 export function mapExportRequest(req) {
   if (!req) return null;
-  const totals = Array.isArray(req.fruits) && req.fruits.length > 0
-    ? sumGradesFromFruits(req.fruits)
-    : {
-        A: toNumber(req.gradeA),
-        B: toNumber(req.gradeB),
-        C: toNumber(req.gradeC),
-      };
+  const totals =
+    Array.isArray(req.fruits) && req.fruits.length > 0
+      ? sumGradesFromFruits(req.fruits)
+      : {
+          A: toNumber(req.gradeA),
+          B: toNumber(req.gradeB),
+          C: toNumber(req.gradeC),
+        };
   const totalWeight = Number(totals.A + totals.B + totals.C);
   return {
     id: req.id,
