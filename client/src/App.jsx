@@ -1,6 +1,7 @@
 // src/App.jsx
 import { Routes, Route, Navigate, Outlet } from "react-router-dom";
 import { useAuth } from "./contexts/AuthContext";
+import { isApprovedStatus, normalizeApprovalStatus } from "./utils/approval";
 
 // --- Auth pages ---
 import Login from "./pages/Login";
@@ -47,7 +48,11 @@ function ApprovalGuard() {
   if (loading) return null;
   if (!user) return <Navigate to="/login" replace />;
   if (user.role !== "broker") return <Navigate to={`/${user.role}/dashboard`} replace />;
-  if (user.approvalStatus !== "approved") return <Navigate to="/broker/dashboard" replace />;
+
+  const approval = normalizeApprovalStatus(user.approvalStatus);
+  if (!isApprovedStatus(approval)) {
+    return <Navigate to="/broker/dashboard" replace />;
+  }
   return <Outlet />;
 }
 

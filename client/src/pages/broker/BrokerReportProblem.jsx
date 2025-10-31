@@ -43,16 +43,20 @@ export default function BrokerReportProblem() {
   useEffect(() => {
     let alive = true;
     (async () => {
-      // เตรียมลิสต์ต้น (กรณีรายต้น)
-      seedTreesIfEmpty();                                      // seed ถ้ายังไม่มีข้อมูล :contentReference[oaicite:4]{index=4}
-      const t = listTrees();                                   // [{ id, name, status }, ...]
-      if (!alive) return;
-      setTrees(t || []);
+      try {
+        await seedTreesIfEmpty();
+        const t = await listTrees();                                   // [{ id, name, status }, ...]
+        if (!alive) return;
+        setTrees(t || []);
 
-      // โหลดรายการปัญหาทั้งหมด แล้วกรองเฉพาะของ broker คนนี้
-      const all = listProblems();                              // เรียงล่าสุดก่อน :contentReference[oaicite:5]{index=5}
-      const mine = (all || []).filter((p) => p.broker_id === user?.broker_id);
-      setRows(mine);
+        const all = await listProblems();
+        if (!alive) return;
+        const mine = (all || []).filter((p) => p.broker_id === user?.broker_id);
+        setRows(mine);
+      } catch (e) {
+        if (!alive) return;
+        setRows([]);
+      }
     })();
     return () => {
       alive = false;
@@ -90,11 +94,10 @@ export default function BrokerReportProblem() {
     await createProblem({
       broker_id: user?.broker_id,
       tree_id: mode === "รายต้น" ? (treeId || null) : null,
-      description,                                                // API เดิมรับ description :contentReference[oaicite:6]{index=6}
+      description,
     });
 
-    // reload my list
-    const all = listProblems();
+    const all = await listProblems();
     const mine = (all || []).filter((p) => p.broker_id === user?.broker_id);
     setRows(mine);
 
@@ -105,8 +108,8 @@ export default function BrokerReportProblem() {
 
   // ----- ยืนยันแก้ไขแล้ว (UC5) -----
   const confirmFixed = async (id) => {
-    await brokerConfirmFixed(id);                                // เปลี่ยนเป็น "แก้ไขแล้ว" :contentReference[oaicite:7]{index=7}
-    const all = listProblems();
+    await brokerConfirmFixed(id);
+    const all = await listProblems();
     const mine = (all || []).filter((p) => p.broker_id === user?.broker_id);
     setRows(mine);
   };

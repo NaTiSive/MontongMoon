@@ -28,38 +28,43 @@ export default function BrokerExportConfirm() {
 
   const brokerId = user?.broker_id;
 
-  const reload = () => {
+  const reload = async () => {
     try {
-      const s = getAvailableStockByGrade({ broker_id: brokerId });
+      const [s, h] = await Promise.all([
+        getAvailableStockByGrade({ broker_id: brokerId }),
+        listBrokerExportRequests(brokerId),
+      ]);
       setStock(s);
-      setHistory(listBrokerExportRequests(brokerId));
+      setHistory(h);
+      setErr("");
     } catch (e) {
       setErr(e.message || "โหลดข้อมูลไม่สำเร็จ");
     }
   };
 
-  useEffect(() => { reload(); }, [brokerId]);
+  useEffect(() => {
+    reload();
+  }, [brokerId]);
 
   const sum = stock.A + stock.B + stock.C;
 
-  const send = () => {
+  const send = async () => {
     try {
-      // ส่งทั้งก้อนที่มี ณ ปัจจุบัน (หรือปรับเป็นกรอกเองได้)
-      const req = submitExportRequest({
+      await submitExportRequest({
         broker_id: brokerId,
         grades: { ...stock },
       });
       alert("ส่งคำขอแล้ว");
-      reload();
+      await reload();
     } catch (e) {
       setErr(e.message);
     }
   };
 
-  const withdraw = (id) => {
+  const withdraw = async (id) => {
     try {
-      withdrawExportRequest({ req_id: id, broker_id: brokerId });
-      reload();
+      await withdrawExportRequest({ req_id: id, broker_id: brokerId });
+      await reload();
     } catch (e) {
       alert(e.message);
     }
