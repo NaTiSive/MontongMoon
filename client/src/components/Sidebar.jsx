@@ -17,6 +17,16 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }) {
 
   // ===== MENU BY ROLE =====
   let menu = [];
+  const approval = String(user.approvalStatus ?? "").trim().toLowerCase();
+  const approvedStates = [
+    "approved",
+    "อนุมัติ",
+    "อนุมัติแล้ว",
+    "ผ่านการอนุมัติ",
+    "ยอมรับ",
+    "ยืนยัน",
+  ];
+  const isApprovedBroker = approvedStates.some((state) => approval.includes(state));
   if (user.role === "owner") {
     menu = [
       { id: "dashboard",    name: "แดชบอร์ด",        path: "/owner/dashboard",    icon: <MdDashboard size={18} /> },
@@ -30,7 +40,7 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }) {
       { id: "activities",   name: "กิจกรรม",           path: "/owner/activities",  icon: <LuListTodo size={18} /> },
     ];
   } else if (user.role === "broker") {
-    if (user.approvalStatus === "pending") {
+    if (!isApprovedBroker) {
       menu = [
         { id: "dashboard",   name: "แดชบอร์ด",     path: "/broker/dashboard",  icon: <MdDashboard size={18} /> },
         { id: "submitoffer", name: "ยื่นข้อเสนอ",   path: "/broker/offers",     icon: <IoPricetag size={18} /> },

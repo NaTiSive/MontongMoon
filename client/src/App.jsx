@@ -47,7 +47,20 @@ function ApprovalGuard() {
   if (loading) return null;
   if (!user) return <Navigate to="/login" replace />;
   if (user.role !== "broker") return <Navigate to={`/${user.role}/dashboard`} replace />;
-  if (user.approvalStatus !== "approved") return <Navigate to="/broker/dashboard" replace />;
+
+  const approval = String(user.approvalStatus ?? "").trim().toLowerCase();
+  const approvedStates = [
+    "approved",
+    "อนุมัติ",
+    "อนุมัติแล้ว",
+    "ผ่านการอนุมัติ",
+    "ยอมรับ",
+    "ยืนยัน",
+  ];
+  const isApproved = approvedStates.some((state) => approval.includes(state));
+  if (!isApproved) {
+    return <Navigate to="/broker/dashboard" replace />;
+  }
   return <Outlet />;
 }
 
