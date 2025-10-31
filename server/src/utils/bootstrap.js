@@ -20,11 +20,24 @@ const ADD_RESERVED_FRUITS_COLUMN_SQL = `
   ADD COLUMN IF NOT EXISTS reserved_fruits TEXT NULL;
 `;
 
+const NORMALIZE_FRUIT_TYPES_SQL = `
+  UPDATE durian_fruit
+  SET type = 'อื่นๆ'
+  WHERE type IS NULL
+    OR type = ''
+    OR type NOT IN ('เก็บเกี่ยว','ขนส่งออก','ทอด','แช่แข็ง','กวน','อบแห้ง','อื่นๆ');
+`;
+
 export default async function bootstrap() {
   await ensureExportRequestTable();
+  await normalizeFruitTypes();
 }
 
 async function ensureExportRequestTable() {
   await prisma.$executeRawUnsafe(CREATE_EXPORT_REQUEST_TABLE_SQL);
   await prisma.$executeRawUnsafe(ADD_RESERVED_FRUITS_COLUMN_SQL);
+}
+
+async function normalizeFruitTypes() {
+  await prisma.$executeRawUnsafe(NORMALIZE_FRUIT_TYPES_SQL);
 }

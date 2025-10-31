@@ -22,32 +22,25 @@ function buildDateFilter(start, end) {
 }
 
 export async function sumHarvestByGrade({ ownerId = 1, brokerId = null, treeId = null, start = null, end = null } = {}) {
-  const treeWhere = {};
-  if (ownerId != null) treeWhere.ownerId = ownerId;
-  if (brokerId) treeWhere.brokerId = brokerId;
-  if (treeId) treeWhere.treeId = treeId;
+  const where = { type: "harvest" };
+  if (ownerId != null) where.ownerId = ownerId;
+  if (brokerId) where.brokerId = brokerId;
+  if (treeId) where.treeId = treeId;
 
   const dateFilter = buildDateFilter(start, end);
-  const fruitWhere = { type: "harvest" };
-  if (dateFilter) fruitWhere.date = dateFilter;
+  if (dateFilter) where.date = dateFilter;
 
-  const trees = await prisma.durianTree.findMany({
-    where: treeWhere,
-    select: {
-      fruits: {
-        where: fruitWhere,
-        select: { grade: true, amount: true },
-      },
-    },
+  const grouped = await prisma.durianFruit.groupBy({
+    by: ["grade"],
+    _sum: { amount: true },
+    where,
   });
 
   const summary = createEmptyGradeSummary();
-  for (const tree of trees) {
-    for (const fruit of tree.fruits) {
-      const label = FRUIT_GRADE_LABELS[fruit.grade] || fruit.grade;
-      if (!Object.prototype.hasOwnProperty.call(summary, label)) continue;
-      summary[label] += toNumber(fruit.amount);
-    }
+  for (const row of grouped) {
+    const label = FRUIT_GRADE_LABELS[row.grade] || row.grade;
+    if (!Object.prototype.hasOwnProperty.call(summary, label)) continue;
+    summary[label] += toNumber(row._sum?.amount);
   }
 
   const normalized = Object.fromEntries(
