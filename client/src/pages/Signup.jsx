@@ -3,20 +3,7 @@ import InputField from "../components/InputField";
 import PageHeader from "../components/PageHeader";
 import PrimaryButton from "../components/PrimaryButton";
 import { useNavigate } from "react-router-dom";
-
-const LS_BROKERS_KEY = "mm:brokers@v1";
-
-function loadBrokers() {
-  try {
-    return JSON.parse(localStorage.getItem(LS_BROKERS_KEY) || "[]");
-  } catch {
-    return [];
-  }
-}
-
-function saveBrokers(arr) {
-  localStorage.setItem(LS_BROKERS_KEY, JSON.stringify(arr));
-}
+import { signupBroker } from "../api/auth";
 
 export default function Signup() {
   const navigate = useNavigate();
@@ -34,7 +21,9 @@ export default function Signup() {
     setForm((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleSubmit = (e) => {
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
 
     const name = form.name.trim();
@@ -51,31 +40,16 @@ export default function Signup() {
     if (password.length < 6) return alert("รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร");
     if (password !== confirm) return alert("รหัสผ่านไม่ตรงกัน");
 
-    const brokers = loadBrokers();
-    if (brokers.some((b) => (b.email || "").toLowerCase() === email)) {
-      return alert("อีเมลนี้ถูกใช้งานแล้ว");
+    try {
+      setSubmitting(true);
+      await signupBroker({ name, phone, email, address, password });
+      alert("สมัครสำเร็จ! โปรดเข้าสู่ระบบ (สถานะ: รออนุมัติ)");
+      navigate("/login");
+    } catch (err) {
+      alert(err?.message || "สมัครไม่สำเร็จ");
+    } finally {
+      setSubmitting(false);
     }
-
-    const nextId =
-      (brokers.reduce((mx, b) => Math.max(mx, Number(b.broker_id || 0)), 0) || 0) + 1;
-
-    const newBroker = {
-      broker_id: nextId,
-      name,
-      phone,
-      email,
-      password,
-      address,
-      role: "broker",
-      approvalStatus: "pending",
-      created_at: new Date().toISOString(),
-    };
-
-    brokers.push(newBroker);
-    saveBrokers(brokers);
-
-    alert("สมัครสำเร็จ! โปรดเข้าสู่ระบบ (สถานะ: รออนุมัติ)");
-    navigate("/login");
   };
 
   return (
@@ -116,7 +90,12 @@ export default function Signup() {
             onChange={handleChange}
           />
 
-          <PrimaryButton title="ลงทะเบียน" type="submit" className="w-full mt-3" />
+          <PrimaryButton
+            title={submitting ? "กำลังบันทึก..." : "ลงทะเบียน"}
+            type="submit"
+            className="w-full mt-3"
+            disabled={submitting}
+          />
         </form>
 
         <p className="text-sm text-gray-600 text-center mt-4">
