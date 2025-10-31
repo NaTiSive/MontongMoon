@@ -15,22 +15,13 @@ import {
 } from "../../api/fruits";
 import { listTrees } from "../../api/trees";
 
-const GRADE_SUMMARY_TEMPLATE = Object.freeze(
+const BROKER_GRADE_SUMMARY_TEMPLATE = Object.freeze(
   Object.fromEntries(GRADES.map((grade) => [grade, 0]))
 );
 
 const createEmptySummary = () => ({
   sum_weight: 0,
-  by_grade: { ...GRADE_SUMMARY_TEMPLATE },
-});
-
-const GRADE_SUMMARY_TEMPLATE = Object.freeze(
-  Object.fromEntries(GRADES.map((grade) => [grade, 0]))
-);
-
-const createEmptySummary = () => ({
-  sum_weight: 0,
-  by_grade: { ...GRADE_SUMMARY_TEMPLATE },
+  by_grade: { ...BROKER_GRADE_SUMMARY_TEMPLATE },
 });
 
 export default function BrokerHarvest() {
@@ -82,7 +73,7 @@ export default function BrokerHarvest() {
     return () => {
       alive = false;
     };
-  }, [user?.broker_id, startDate, endDate]);
+  }, [user?.broker_id, startDate, endDate, treeFilter]);
 
   // ─────────── โหลดข้อมูล ───────────
   useEffect(() => {

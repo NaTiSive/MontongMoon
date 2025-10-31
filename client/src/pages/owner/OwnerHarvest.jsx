@@ -13,22 +13,13 @@ import {
 } from "../../api/fruits";
 import { listTrees } from "../../api/trees";
 
-const GRADE_SUMMARY_TEMPLATE = Object.freeze(
+const OWNER_GRADE_SUMMARY_TEMPLATE = Object.freeze(
   Object.fromEntries(GRADES.map((grade) => [grade, 0]))
 );
 
 const createEmptySummary = () => ({
   sum_weight: 0,
-  by_grade: { ...GRADE_SUMMARY_TEMPLATE },
-});
-
-const GRADE_SUMMARY_TEMPLATE = Object.freeze(
-  Object.fromEntries(GRADES.map((grade) => [grade, 0]))
-);
-
-const createEmptySummary = () => ({
-  sum_weight: 0,
-  by_grade: { ...GRADE_SUMMARY_TEMPLATE },
+  by_grade: { ...OWNER_GRADE_SUMMARY_TEMPLATE },
 });
 
 export default function OwnerHarvest() {
