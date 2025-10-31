@@ -5,6 +5,7 @@ import HeaderWrapper from "../../components/HeaderWrapper";
 import Card from "../../components/Card";
 import { useAuth } from "../../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
+import { isApprovedStatus } from "../../utils/approval";
 
 import { createActivity, listActivitiesByBroker } from "../../api/activities";
 import { listTrees, seedTreesIfEmpty, updateTreeStatus } from "../../api/trees";
@@ -18,7 +19,7 @@ export default function BrokerActivity() {
     if (!user || user.role !== "broker") navigate("/login");
   }, [user, navigate]);
 
-  const disabled = user?.approvalStatus !== "approved";
+  const disabled = !isApprovedStatus(user?.approvalStatus);
 
   // ───────────────────────────
   // Load trees + my activities
@@ -32,13 +33,15 @@ export default function BrokerActivity() {
     (async () => {
       try {
         setLoading(true);
-        seedTreesIfEmpty();
-        const t = listTrees();
-        const acts = listActivitiesByBroker(user?.broker_id);
+        await seedTreesIfEmpty();
+        const [t, acts] = await Promise.all([
+          listTrees(),
+          listActivitiesByBroker(user?.broker_id),
+        ]);
         if (!alive) return;
         setTrees(t);
-        // sort ใหม่สุดก่อน
-        setRows(acts.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)));
+        setRows((acts || []).sort((a, b) => new Date(b.created_at) - new Date(a.created_at)));
+        setErr("");
       } catch (e) {
         if (!alive) return;
         setErr(e?.message || "โหลดข้อมูลไม่สำเร็จ");
@@ -72,32 +75,32 @@ export default function BrokerActivity() {
     return "ปกติ";
   };
 
-  const add = () => {
+  const add = async () => {
     if (disabled) return;
     if (!form.tree_id) return alert("กรุณาเลือกต้นไม้");
     if (!form.type) return alert("กรุณาเลือกประเภทกิจกรรม");
 
     // create activity
-    const rec = createActivity({
-      broker_id: user?.broker_id,
-      tree_id: form.tree_id,
-      type: form.type,
-      note: form.note?.trim() || "",
-    });
+    try {
+      const rec = await createActivity({
+        broker_id: user?.broker_id,
+        tree_id: form.tree_id,
+        type: form.type,
+        note: form.note?.trim() || "",
+      });
 
     // อัปเดตสถานะต้นไม้อัตโนมัติจากประเภทกิจกรรม
-    try {
-      const newStatus = deriveStatusFromType(form.type);
-      updateTreeStatus(form.tree_id, newStatus);
-      // รีโหลดสถานะต้นไม้เพื่อให้ UI สะท้อนผล
-      setTrees(listTrees());
-    } catch (e) {
-      console.error(e);
-      alert(e?.message || "อัปเดตสถานะต้นไม้ไม่สำเร็จ");
-    }
+      try {
+        const newStatus = deriveStatusFromType(form.type);
+        await updateTreeStatus(form.tree_id, newStatus);
+        setTrees(await listTrees());
+      } catch (e) {
+        console.error(e);
+        alert(e?.message || "อัปเดตสถานะต้นไม้ไม่สำเร็จ");
+      }
 
     // อัปเดตตาราง
-    setRows((r) => [rec, ...r]);
+      setRows((r) => [rec, ...r]);
 
     // reset ฟอร์ม (คงประเภทกิจกรรมเดิมไว้ให้)
     setForm({
@@ -105,6 +108,9 @@ export default function BrokerActivity() {
       type: form.type,
       note: "",
     });
+    } catch (e) {
+      alert(e?.message || "บันทึกกิจกรรมไม่สำเร็จ");
+    }
   };
 
   // ───────────────────────────

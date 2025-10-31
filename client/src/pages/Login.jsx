@@ -5,7 +5,6 @@ import PageHeader from "../components/PageHeader";
 import PrimaryButton from "../components/PrimaryButton";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import { getBrokerApproval } from "../api/contracts";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -19,75 +18,21 @@ export default function Login() {
     else if (user.role === "broker") navigate("/broker/dashboard");
   }
 
-  const mockUsers = [
-    {
-      email: "owner@durianfarm.com",
-      password: "123456",
-      role: "owner",
-      name: "เจ้าของสวนหลัก",
-      phone: "099-000-0000",
-      address: "123 หมู่บ้านทุเรียน ต.ผลไม้ อ.เมือง จ.จันทบุรี",
-    },
-    {
-      email: "broker@durianlink.com",
-      password: "123456",
-      role: "broker",
-      name: "นายหน้าทุเรียน",
-      phone: "088-111-2222",
-      address: "45/6 ต.ทุเรียนทอง อ.บ้านสวน จ.ระยอง",
-      approvalStatus: "approved",
-      broker_id: 2,
-    },
-    {
-      email: "pending@durianlink.com",
-      password: "123456",
-      role: "broker",
-      name: "นายหน้ารออนุมัติ",
-      phone: "099-555-5555",
-      address: "44 หมู่ 3 อ.ทุ่งผลไม้ จ.จันทบุรี",
-      approvalStatus: "pending",
-      broker_id: 3,
-    },
-  ];
+  const [loadingLogin, setLoadingLogin] = useState(false);
 
-  const loadBrokers = () => {
-    try {
-      return JSON.parse(localStorage.getItem("mm:brokers@v1") || "[]");
-    } catch {
-      return [];
-    }
-  };
-
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
 
-    let foundUser = mockUsers.find(
-      (u) => u.email === email && u.password === password && u.role === role
-    );
-
-    // ถ้าเป็น broker และยังไม่เจอ → ลองหาใน mm:brokers@v1
-    if (!foundUser && role === "broker") {
-      const brokers = loadBrokers();
-      const b = brokers.find(
-        (x) => x.email === email.toLowerCase() && x.password === password
-      );
-      if (b) {
-        const latest = getBrokerApproval(b.broker_id) || b.approvalStatus || "pending";
-        foundUser = {
-          ...b,
-          approvalStatus: latest,
-          role: "broker",
-        };
-      }
+    try {
+      setLoadingLogin(true);
+      await login({ email, password, role });
+      navigate(role === "owner" ? "/owner/dashboard" : "/broker/dashboard");
+    } catch (err) {
+      const message = err?.message || "เข้าสู่ระบบไม่สำเร็จ";
+      alert(message);
+    } finally {
+      setLoadingLogin(false);
     }
-
-    if (!foundUser) {
-      alert("อีเมลหรือรหัสผ่านไม่ถูกต้อง");
-      return;
-    }
-
-    login(foundUser);
-    navigate(foundUser.role === "owner" ? "/owner/dashboard" : "/broker/dashboard");
   };
 
   return (
@@ -140,7 +85,12 @@ export default function Login() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
-          <PrimaryButton title="เข้าสู่ระบบ" type="submit" className="w-full mt-4" />
+          <PrimaryButton
+            title={loadingLogin ? "กำลังเข้าสู่ระบบ..." : "เข้าสู่ระบบ"}
+            type="submit"
+            className="w-full mt-4"
+            disabled={loadingLogin}
+          />
         </form>
 
         {role === "broker" && (

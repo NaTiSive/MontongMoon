@@ -25,11 +25,13 @@ export default function OwnerTransactions() {
   const [err, setErr] = useState("");
   const [summary, setSummary] = useState(null);
 
-  const reload = () => {
+  const reload = async () => {
     try {
-      const all = listAllTransactions();
+      const all = await listAllTransactions();
       setRows(all.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)));
-      setSummary(summarizeAll());
+      const sum = await summarizeAll();
+      setSummary(sum);
+      setErr("");
     } catch (e) {
       setErr(e?.message || "โหลดข้อมูลไม่สำเร็จ");
     } finally {
@@ -65,18 +67,18 @@ export default function OwnerTransactions() {
     );
   }, [rows, q, typeFilter, methodFilter, statusFilter]);
 
-  const onApprove = (id) => {
+  const onApprove = async (id) => {
     try {
-      approveTransaction(id);
-      reload();
+      await approveTransaction(id);
+      await reload();
     } catch (e) {
       alert(e?.message || "อนุมัติไม่สำเร็จ");
     }
   };
-  const onReject = (id) => {
+  const onReject = async (id) => {
     try {
-      rejectTransaction(id);
-      reload();
+      await rejectTransaction(id);
+      await reload();
     } catch (e) {
       alert(e?.message || "ปฏิเสธไม่สำเร็จ");
     }
