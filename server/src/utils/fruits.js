@@ -1,11 +1,18 @@
 import prisma from "../config/prisma.js";
+import { FruitFlowType } from "@prisma/client";
 import {
   FRUIT_GRADE_LABELS,
   FRUIT_PROCESS_TYPE_CODES,
+  normalizeFruitFlowCode,
   toNumberSafe,
 } from "./formatters.js";
 
 const GRADE_LABELS = Object.values(FRUIT_GRADE_LABELS);
+const HARVEST_CODE = normalizeFruitFlowCode(FruitFlowType.harvest);
+const EXPORT_CODE = normalizeFruitFlowCode(FruitFlowType.export);
+const PROCESS_TYPE_SET = new Set(
+  FRUIT_PROCESS_TYPE_CODES.map((code) => normalizeFruitFlowCode(code))
+);
 
 function createEmptyGradeSummary() {
   return Object.fromEntries(GRADE_LABELS.map((label) => [label, 0]));
@@ -22,7 +29,7 @@ function buildDateFilter(start, end) {
 }
 
 export async function sumHarvestByGrade({ ownerId = 1, brokerId = null, treeId = null, start = null, end = null } = {}) {
-  const where = { type: "harvest" };
+  const where = { type: FruitFlowType.harvest };
   if (ownerId != null) where.ownerId = ownerId;
   if (brokerId) where.brokerId = brokerId;
   if (treeId) where.treeId = treeId;
@@ -67,9 +74,10 @@ export async function computeNetStockByGrade({ ownerId = 1, brokerId = null, sta
     if (!Object.prototype.hasOwnProperty.call(summary, label)) continue;
 
     const weight = toNumber(record.amount);
-    if (record.type === "harvest") {
+    const flow = normalizeFruitFlowCode(record.type);
+    if (flow === HARVEST_CODE) {
       summary[label] += weight;
-    } else if (record.type === "export" || FRUIT_PROCESS_TYPE_CODES.includes(record.type)) {
+    } else if (flow === EXPORT_CODE || PROCESS_TYPE_SET.has(flow)) {
       summary[label] -= weight;
     }
   }

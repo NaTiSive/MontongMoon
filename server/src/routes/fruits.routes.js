@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
+import { FruitFlowType } from "@prisma/client";
 import prisma from "../config/prisma.js";
 import { authenticate, requireRole } from "../middleware/auth.js";
 import {
@@ -12,15 +13,19 @@ import { sumHarvestByGrade } from "../utils/fruits.js";
 const router = Router();
 
 const FRUIT_TYPE_INPUT = {
-  "เก็บเกี่ยว": "harvest",
-  "ขนส่งออก": "export",
+  "เก็บเกี่ยว": FruitFlowType.harvest,
+  "ขนส่งออก": FruitFlowType.export,
 };
 
 const PROCESS_METHOD_INPUT = Object.fromEntries(
-  Object.entries(FRUIT_PROCESS_METHOD_LABELS).map(([code, label]) => [label, code])
+  Object.entries(FRUIT_PROCESS_METHOD_LABELS)
+    .map(([code, label]) => [label, FruitFlowType[code]])
+    .filter(([, value]) => Boolean(value))
 );
 
-const PROCESS_TYPE_VALUES = FRUIT_PROCESS_TYPE_CODES;
+const PROCESS_TYPE_VALUES = FRUIT_PROCESS_TYPE_CODES.map((code) => FruitFlowType[code]).filter(
+  Boolean
+);
 
 const FRUIT_GRADE_INPUT = {
   A: "A",
@@ -61,7 +66,7 @@ router.get("/", authenticate(), async (req, res) => {
 
 router.get("/harvest", authenticate(), async (req, res) => {
   const { broker_id: brokerIdParam, tree_id: treeIdParam, start, end } = req.query;
-  const where = { NOT: { type: { in: ["export", ...PROCESS_TYPE_VALUES] } } };
+  const where = { type: FruitFlowType.harvest };
 
   if (req.user.role === "broker") {
     where.brokerId = req.user.id;
@@ -160,7 +165,7 @@ router.post("/harvest", authenticate(), requireRole("broker", "owner"), async (r
       brokerId,
       grade: FRUIT_GRADE_INPUT[grade],
       amount: weight_kg,
-      type: "harvest",
+      type: FruitFlowType.harvest,
       date: date ? new Date(date) : new Date(),
     },
   });

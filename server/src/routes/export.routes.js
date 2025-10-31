@@ -1,8 +1,9 @@
 import { Router } from "express";
 import { z } from "zod";
+import { FruitFlowType } from "@prisma/client";
 import prisma from "../config/prisma.js";
 import { authenticate, requireRole } from "../middleware/auth.js";
-import { mapExportRequest, mapFruit } from "../utils/formatters.js";
+import { mapExportRequest, mapFruit, normalizeFruitFlowCode } from "../utils/formatters.js";
 import { computeNetStockByGrade } from "../utils/fruits.js";
 
 const router = Router();
@@ -21,7 +22,7 @@ async function getStockByGrade(brokerId) {
 function sumGradesFromFruits(fruits = []) {
   const totals = { A: 0, B: 0, C: 0 };
   for (const fruit of fruits) {
-    if (!fruit || fruit.type !== "export") continue;
+    if (!fruit || normalizeFruitFlowCode(fruit.type) !== "export") continue;
     if (!EXPORT_GRADES.includes(fruit.grade)) continue;
     totals[fruit.grade] += Number(fruit.amount ?? 0);
   }
@@ -95,7 +96,7 @@ async function reserveExportFruits(tx, brokerId, grades) {
     let remaining = Number(grades[grade] || 0);
     if (remaining <= EPSILON) continue;
     const harvestRecords = await tx.durianFruit.findMany({
-      where: { brokerId, grade, type: "harvest" },
+      where: { brokerId, grade, type: FruitFlowType.harvest },
       orderBy: [{ date: "asc" }, { fruitId: "asc" }],
     });
 
@@ -108,7 +109,7 @@ async function reserveExportFruits(tx, brokerId, grades) {
         remaining -= available;
         const updated = await tx.durianFruit.update({
           where: { fruitId: record.fruitId },
-          data: { type: "export" },
+          data: { type: FruitFlowType.export },
         });
         reserved.push(updated);
       } else {
@@ -125,7 +126,7 @@ async function reserveExportFruits(tx, brokerId, grades) {
             brokerId: record.brokerId,
             grade: record.grade,
             amount: remaining,
-            type: "export",
+            type: FruitFlowType.export,
             date: record.date,
           },
         });
@@ -145,10 +146,10 @@ async function releaseReservedFruits(tx, request) {
   const fruits = request?.fruits || [];
   const released = [];
   for (const fruit of fruits) {
-    if (!fruit || fruit.type !== "export") continue;
+    if (!fruit || normalizeFruitFlowCode(fruit.type) !== "export") continue;
     const updated = await tx.durianFruit.update({
       where: { fruitId: fruit.fruitId },
-      data: { type: "harvest" },
+      data: { type: FruitFlowType.harvest },
     });
     released.push(updated);
   }
@@ -322,7 +323,9 @@ router.post("/requests/:id/approve", authenticate(), requireRole("owner"), async
   try {
     const result = await prisma.$transaction(async (tx) => {
       const current = await getRequestWithFruits(id, tx);
-      const reservedFruits = (current?.fruits || []).filter((fruit) => fruit && fruit.type === "export");
+      const reservedFruits = (current?.fruits || []).filter(
+        (fruit) => fruit && normalizeFruitFlowCode(fruit.type) === "export"
+      );
       const totals = sumGradesFromFruits(reservedFruits);
       const totalWeight = totals.A + totals.B + totals.C;
       if (!reservedFruits.length || totalWeight <= EPSILON) {

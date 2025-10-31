@@ -36,6 +36,29 @@ const FRUIT_TYPE_LABELS = {
   export: "ขนส่งออก",
 };
 
+const FRUIT_FLOW_CODE_BY_LABEL = {
+  harvest: "harvest",
+  export: "export",
+  fry: "fry",
+  freeze: "freeze",
+  jam: "jam",
+  dry: "dry",
+  other: "other",
+  "เก็บเกี่ยว": "harvest",
+  "ขนส่งออก": "export",
+  "ทอด": "fry",
+  "แช่แข็ง": "freeze",
+  "กวน": "jam",
+  "อบแห้ง": "dry",
+  "อื่นๆ": "other",
+};
+
+export function normalizeFruitFlowCode(value) {
+  if (value == null) return null;
+  const key = String(value);
+  return FRUIT_FLOW_CODE_BY_LABEL[key] ?? key;
+}
+
 export const FRUIT_PROCESS_METHOD_LABELS = {
   fry: "ทอด",
   freeze: "แช่แข็ง",
