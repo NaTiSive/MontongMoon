@@ -36,26 +36,42 @@ export default function BrokerHarvest() {
   // ─────────── โหลดข้อมูล ───────────
   useEffect(() => {
     let alive = true;
-    try {
-      const data = listFruitsByBrokerHarvestOnly(user?.broker_id);
-      if (alive) setRows(data);
-    } catch (e) {
-      if (alive) setErr(e?.message || "โหลดข้อมูลไม่สำเร็จ");
-    } finally {
-      setLoading(false);
-    }
+    if (!user?.broker_id) return () => { alive = false; };
+    (async () => {
+      try {
+        setLoading(true);
+        let data;
+        if (startDate || endDate) {
+          const startISO = startDate ? new Date(startDate).toISOString() : undefined;
+          const endISO = endDate ? new Date(endDate + "T23:59:59").toISOString() : undefined;
+          data = await listFruitsByDateRangeHarvestOnly({ startISO, endISO });
+          data = data.filter((r) => String(r.broker_id) === String(user?.broker_id));
+        } else {
+          data = await listFruitsByBrokerHarvestOnly(user?.broker_id);
+        }
+        if (!alive) return;
+        setRows(data);
+        setErr("");
+      } catch (e) {
+        if (!alive) return;
+        setErr(e?.message || "โหลดข้อมูลไม่สำเร็จ");
+      } finally {
+        if (!alive) return;
+        setLoading(false);
+      }
+    })();
     return () => {
       alive = false;
     };
-  }, [user?.broker_id]);
+  }, [user?.broker_id, startDate, endDate]);
 
   // ─────────── เพิ่มข้อมูลเก็บเกี่ยว ───────────
-  const add = () => {
+  const add = async () => {
     try {
       const w = Number(form.weight_kg);
       if (!w || w <= 0) return alert("กรุณาระบุน้ำหนักที่ถูกต้อง");
 
-      const rec = createHarvestFruitRecord({
+      const rec = await createHarvestFruitRecord({
         broker_id: user?.broker_id,
         grade: form.grade,
         weight_kg: w,
@@ -72,12 +88,6 @@ export default function BrokerHarvest() {
   // ─────────── ฟังก์ชันกรอง ───────────
   const filtered = useMemo(() => {
     let list = rows;
-    if (startDate || endDate) {
-      list = listFruitsByDateRangeHarvestOnly({
-        startISO: startDate ? new Date(startDate).toISOString() : undefined,
-        endISO: endDate ? new Date(endDate + "T23:59:59").toISOString() : undefined,
-      }).filter((r) => String(r.broker_id) === String(user?.broker_id));
-    }
     if (gradeFilter !== "ทั้งหมด")
       list = list.filter((x) => x.grade === gradeFilter);
 
