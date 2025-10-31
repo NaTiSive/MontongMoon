@@ -9,7 +9,6 @@ import {
   mapFruit,
 } from "../utils/formatters.js";
 import { sumHarvestByGrade } from "../utils/fruits.js";
-import { resolveOwnerIdForRequest } from "../utils/brokers.js";
 
 const router = Router();
 
@@ -36,7 +35,7 @@ const FRUIT_GRADE_INPUT = {
 };
 
 router.get("/", authenticate(), async (req, res) => {
-  const { broker_id: brokerIdParam, owner_id: ownerIdParam, type } = req.query;
+  const { broker_id: brokerIdParam, type } = req.query;
   const where = {};
 
   if (req.user.role === "broker") {
@@ -45,11 +44,6 @@ router.get("/", authenticate(), async (req, res) => {
 
   if (brokerIdParam) {
     where.brokerId = String(brokerIdParam);
-  }
-
-  const ownerId = await resolveOwnerIdForRequest(req.user, ownerIdParam);
-  if (ownerId !== null) {
-    where.ownerId = ownerId;
   }
 
   if (type) {
@@ -71,7 +65,7 @@ router.get("/", authenticate(), async (req, res) => {
 });
 
 router.get("/harvest", authenticate(), async (req, res) => {
-  const { broker_id: brokerIdParam, owner_id: ownerIdParam, tree_id: treeIdParam, start, end } = req.query;
+  const { broker_id: brokerIdParam, tree_id: treeIdParam, start, end } = req.query;
   const where = { type: FruitFlowType.harvest };
 
   if (req.user.role === "broker") {
@@ -80,11 +74,6 @@ router.get("/harvest", authenticate(), async (req, res) => {
 
   if (brokerIdParam) {
     where.brokerId = String(brokerIdParam);
-  }
-
-  const ownerId = await resolveOwnerIdForRequest(req.user, ownerIdParam);
-  if (ownerId !== null) {
-    where.ownerId = ownerId;
   }
 
   if (treeIdParam) {
@@ -113,7 +102,7 @@ router.get("/harvest", authenticate(), async (req, res) => {
 });
 
 router.get("/harvest/summary", authenticate(), async (req, res) => {
-  const { broker_id: brokerIdParam, owner_id: ownerIdParam, tree_id: treeIdParam, start, end } = req.query;
+  const { broker_id: brokerIdParam, tree_id: treeIdParam, start, end } = req.query;
   let brokerId = null;
   if (req.user.role === "broker") {
     brokerId = req.user.id;
@@ -126,8 +115,6 @@ router.get("/harvest/summary", authenticate(), async (req, res) => {
   if (treeIdParam) {
     treeId = String(treeIdParam);
   }
-
-  const ownerId = await resolveOwnerIdForRequest(req.user, ownerIdParam);
 
   let startDate;
   if (start) {
@@ -145,7 +132,7 @@ router.get("/harvest/summary", authenticate(), async (req, res) => {
     }
   }
 
-  const summary = await sumHarvestByGrade({ brokerId, ownerId, treeId, start: startDate, end: endDate });
+  const summary = await sumHarvestByGrade({ brokerId, ownerId: 1, treeId, start: startDate, end: endDate });
   res.json({ summary });
 });
 
@@ -168,32 +155,13 @@ router.post("/harvest", authenticate(), requireRole("broker", "owner"), async (r
   }
 
   const { tree_id, grade, weight_kg, date } = parsed.data;
-  const brokerId =
-    req.user.role === "broker"
-      ? req.user.id
-      : req.body.broker_id
-      ? String(req.body.broker_id)
-      : null;
-
-  const tree = await prisma.durianTree.findUnique({
-    where: { treeId: tree_id },
-    select: { ownerId: true, brokerId: true, treeId: true },
-  });
-  if (!tree) {
-    return res.status(404).json({ message: "ไม่พบทุเรียนต้นนี้" });
-  }
-  if (req.user.role === "owner" && Number(tree.ownerId) !== Number(req.user.id)) {
-    return res.status(403).json({ message: "ไม่มีสิทธิ์บันทึกผลผลิตให้ต้นนี้" });
-  }
-  if (req.user.role === "broker" && tree.brokerId && tree.brokerId !== brokerId) {
-    return res.status(403).json({ message: "ต้นนี้ไม่ได้อยู่ภายใต้สัญญาของคุณ" });
-  }
+  const brokerId = req.user.role === "broker" ? req.user.id : req.body.broker_id ? String(req.body.broker_id) : null;
 
   const record = await prisma.durianFruit.create({
     data: {
       fruitId: await generateFruitId(),
-      treeId: tree.treeId,
-      ownerId: Number(tree.ownerId),
+      treeId: tree_id,
+      ownerId: 1,
       brokerId,
       grade: FRUIT_GRADE_INPUT[grade],
       amount: weight_kg,
