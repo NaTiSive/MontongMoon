@@ -30,9 +30,10 @@ export default function OwnerProblems() {
     (async () => {
       try {
         setLoading(true);
-        const all = listProblems();
+        const all = await listProblems();
         if (!alive) return;
         setRows(all);
+        setErr("");
       } catch (e) {
         if (!alive) return;
         setErr(e?.message || "โหลดรายการปัญหาไม่สำเร็จ");
@@ -63,15 +64,19 @@ export default function OwnerProblems() {
     });
   }, [rows, q, typeFilter]);
 
-  const setPending = (id) => {
+  const setPending = async (id) => {
     const note = noteMap[id]?.trim() || "";
     // อนุญาตให้เว้นว่างได้ แต่ถามยืนยันก่อน
     if (!note) {
       if (!window.confirm("ไม่ใส่โน้ตตอนมอบหมายใช่ไหม?")) return;
     }
-    const rec = ownerAssignNoteAndSetPending(id, note); // → สถานะ “ระหว่างแก้ไข”
-    setRows((r) => r.map((x) => (x.id === id ? rec : x)));
-    setNoteMap((m) => ({ ...m, [id]: "" }));
+    try {
+      const rec = await ownerAssignNoteAndSetPending(id, note); // → สถานะ “ระหว่างแก้ไข”
+      setRows((r) => r.map((x) => (x.id === id ? rec : x)));
+      setNoteMap((m) => ({ ...m, [id]: "" }));
+    } catch (e) {
+      alert(e?.message || "มอบหมายไม่สำเร็จ");
+    }
   };
 
   const badge = (status) => {
