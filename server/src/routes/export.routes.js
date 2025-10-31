@@ -28,11 +28,47 @@ function sumGradesFromFruits(fruits = []) {
   return totals;
 }
 
-async function getRequestWithFruits(id, tx = prisma) {
-  return tx.exportRequest.findUnique({
-    where: { id },
-    include: { fruits: { include: { fruit: true } } },
+function parseReservedFruitIds(value) {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) {
+      return parsed.map((id) => String(id)).filter(Boolean);
+    }
+    return [];
+  } catch (err) {
+    return [];
+  }
+}
+
+function serializeReservedFruitIds(ids) {
+  if (!ids || !ids.length) return null;
+  const unique = Array.from(new Set(ids.map((id) => String(id)).filter(Boolean)));
+  return unique.length ? JSON.stringify(unique) : null;
+}
+
+async function loadReservedFruits(tx, ids) {
+  if (!ids.length) return [];
+  const records = await tx.durianFruit.findMany({
+    where: { fruitId: { in: ids } },
   });
+  const lookup = new Map(records.map((record) => [record.fruitId, record]));
+  return ids.map((id) => lookup.get(id)).filter(Boolean);
+}
+
+async function attachReservedFruits(request, tx = prisma) {
+  if (!request) return null;
+  const ids = parseReservedFruitIds(request.reservedFruits);
+  if (!ids.length) {
+    return { ...request, fruits: [] };
+  }
+  const fruits = await loadReservedFruits(tx, ids);
+  return { ...request, fruits };
+}
+
+async function getRequestWithFruits(id, tx = prisma) {
+  const request = await tx.exportRequest.findUnique({ where: { id } });
+  return attachReservedFruits(request, tx);
 }
 
 async function nextFruitId(tx) {
@@ -105,22 +141,10 @@ async function reserveExportFruits(tx, brokerId, grades) {
   return reserved;
 }
 
-async function linkReservedFruits(tx, requestId, fruits) {
-  if (!fruits.length) return;
-  await tx.exportRequestFruit.createMany({
-    data: fruits.map((fruit) => ({ requestId, fruitId: fruit.fruitId })),
-    skipDuplicates: true,
-  });
-}
-
-async function releaseReservedFruits(tx, requestId) {
-  const assignments = await tx.exportRequestFruit.findMany({
-    where: { requestId },
-    include: { fruit: true },
-  });
+async function releaseReservedFruits(tx, request) {
+  const fruits = request?.fruits || [];
   const released = [];
-  for (const assignment of assignments) {
-    const fruit = assignment.fruit;
+  for (const fruit of fruits) {
     if (!fruit || fruit.type !== "export") continue;
     const updated = await tx.durianFruit.update({
       where: { fruitId: fruit.fruitId },
@@ -220,17 +244,19 @@ router.post("/requests", authenticate(), requireRole("broker"), async (req, res)
         throw new Error("ไม่สามารถจองผลผลิตได้");
       }
 
-      await linkReservedFruits(tx, request.id, reserved);
       const totals = sumGradesFromFruits(reserved);
-      return tx.exportRequest.update({
+      const reservedIds = reserved.map((fruit) => fruit.fruitId);
+      const updated = await tx.exportRequest.update({
         where: { id: request.id },
         data: {
           gradeA: totals.A,
           gradeB: totals.B,
           gradeC: totals.C,
+          reservedFruits: serializeReservedFruitIds(reservedIds),
         },
-        include: { fruits: { include: { fruit: true } } },
       });
+
+      return attachReservedFruits(updated, tx);
     });
 
     res.status(201).json({ data: mapExportRequest(created) });
@@ -251,9 +277,9 @@ router.get("/requests", authenticate(), async (req, res) => {
   const requests = await prisma.exportRequest.findMany({
     where,
     orderBy: { createdAt: "desc" },
-    include: { fruits: { include: { fruit: true } } },
   });
-  res.json({ data: requests.map(mapExportRequest) });
+  const withFruits = await Promise.all(requests.map((req) => attachReservedFruits(req)));
+  res.json({ data: withFruits.map(mapExportRequest) });
 });
 
 router.post("/requests/:id/withdraw", authenticate(), requireRole("broker"), async (req, res) => {
@@ -267,12 +293,14 @@ router.post("/requests/:id/withdraw", authenticate(), requireRole("broker"), asy
   }
 
   const updated = await prisma.$transaction(async (tx) => {
-    await releaseReservedFruits(tx, id);
-    return tx.exportRequest.update({
+    const current = await getRequestWithFruits(id, tx);
+    await releaseReservedFruits(tx, current);
+    const cleared = await tx.exportRequest.update({
       where: { id },
-      data: { status: "withdrawn" },
-      include: { fruits: { include: { fruit: true } } },
+      data: { status: "withdrawn", reservedFruits: null },
     });
+
+    return attachReservedFruits(cleared, tx);
   });
 
   res.json({ data: mapExportRequest(updated) });
@@ -294,9 +322,7 @@ router.post("/requests/:id/approve", authenticate(), requireRole("owner"), async
   try {
     const result = await prisma.$transaction(async (tx) => {
       const current = await getRequestWithFruits(id, tx);
-      const reservedFruits = (current?.fruits || [])
-        .map((item) => item.fruit)
-        .filter((fruit) => fruit && fruit.type === "export");
+      const reservedFruits = (current?.fruits || []).filter((fruit) => fruit && fruit.type === "export");
       const totals = sumGradesFromFruits(reservedFruits);
       const totalWeight = totals.A + totals.B + totals.C;
       if (!reservedFruits.length || totalWeight <= EPSILON) {
@@ -322,11 +348,13 @@ router.post("/requests/:id/approve", authenticate(), requireRole("owner"), async
           gradeA: totals.A,
           gradeB: totals.B,
           gradeC: totals.C,
+          reservedFruits: serializeReservedFruitIds(reservedFruits.map((fruit) => fruit.fruitId)),
         },
-        include: { fruits: { include: { fruit: true } } },
       });
 
-      return { updatedRequest, exported };
+      const withFruits = await attachReservedFruits(updatedRequest, tx);
+
+      return { updatedRequest: withFruits, exported };
     });
 
     res.json({
@@ -349,12 +377,14 @@ router.post("/requests/:id/reject", authenticate(), requireRole("owner"), async 
   }
 
   const updated = await prisma.$transaction(async (tx) => {
-    await releaseReservedFruits(tx, id);
-    return tx.exportRequest.update({
+    const current = await getRequestWithFruits(id, tx);
+    await releaseReservedFruits(tx, current);
+    const cleared = await tx.exportRequest.update({
       where: { id },
-      data: { status: "rejected" },
-      include: { fruits: { include: { fruit: true } } },
+      data: { status: "rejected", reservedFruits: null },
     });
+
+    return attachReservedFruits(cleared, tx);
   });
 
   res.json({ data: mapExportRequest(updated) });
