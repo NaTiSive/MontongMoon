@@ -5,6 +5,7 @@ import HeaderWrapper from "../../components/HeaderWrapper";
 import Sidebar from "../../components/Sidebar";
 import Card from "../../components/Card";
 import PrimaryButton from "../../components/PrimaryButton";
+import { isApprovedStatus } from "../../utils/approval";
 import { listBrokerContracts } from "../../api/contracts"; // ✅ ใช้ฟังก์ชันจริงที่มีใน API
 import { useNavigate } from "react-router-dom";
 
@@ -38,7 +39,7 @@ export default function BrokerDashboard() {
       <HeaderWrapper
         title="แดชบอร์ดผู้รับเหมา"
         subtitle={
-          user?.approvalStatus === "approved"
+          isApprovedStatus(user?.approvalStatus)
             ? "สถานะ: อนุมัติแล้ว"
             : "สถานะ: รอการอนุมัติ"
         }
@@ -62,7 +63,7 @@ export default function BrokerDashboard() {
               <h2 className="text-lg font-semibold mb-2">สถานะอนุมัติ</h2>
               <p className="text-sm text-gray-600">
                 ปัจจุบัน:{" "}
-                {user?.approvalStatus === "approved"
+                {isApprovedStatus(user?.approvalStatus)
                   ? "อนุมัติแล้ว"
                   : "รอการอนุมัติ"}
               </p>
