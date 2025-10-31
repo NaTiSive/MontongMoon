@@ -2,91 +2,131 @@ import { Router } from "express";
 import { z } from "zod";
 import prisma from "../config/prisma.js";
 import { authenticate, requireRole } from "../middleware/auth.js";
-import { FRUIT_PROCESS_METHOD_LABELS, mapFruit, toNumberSafe } from "../utils/formatters.js";
+import { FruitFlowType, FruitGrade } from "@prisma/client";
+import { mapFruit, FRUIT_PROCESS_METHOD_LABELS, normalizeFruitFlowCode } from "../utils/formatters.js";
 
 const router = Router();
 
-const PROCESS_METHOD_INPUT = Object.fromEntries(
-  Object.entries(FRUIT_PROCESS_METHOD_LABELS).map(([code, label]) => [label, code])
-);
+// กลุ่มประเภท "แปรรูป" ทั้งหมด (ตาม enum)
+const PROCESS_TYPES = [
+  FruitFlowType.fry,
+  FruitFlowType.freeze,
+  FruitFlowType.jam,
+  FruitFlowType.dry,
+  FruitFlowType.other,
+];
 
-const PROCESS_TYPE_VALUES = Object.keys(FRUIT_PROCESS_METHOD_LABELS);
+// คิด "ทุเรียนตกเกรดคงเหลือ (กก.)"
+router.get("/stock", authenticate(), requireRole("owner"), async (_req, res) => {
+  const ownerId = 1; // โปรเจกต์นี้ล็อก owner เดียว
 
-router.get("/stock", authenticate(), requireRole("owner"), async (req, res) => {
-  const downgradedHarvest = await prisma.durianFruit.aggregate({
-    _sum: { amount: true },
+  // 1) รวมตกเกรดที่ "เก็บเกี่ยว" มาแล้วทั้งหมด
+  const harvested = await prisma.durianFruit.aggregate({
     where: {
-      grade: "fallen",
-      NOT: { type: { in: [...PROCESS_TYPE_VALUES, "export"] } },
+      ownerId,
+      grade: FruitGrade.fallen,
+      type: FruitFlowType.harvest,
     },
-  });
-
-  const processed = await prisma.durianFruit.aggregate({
     _sum: { amount: true },
-    where: { type: { in: PROCESS_TYPE_VALUES } },
   });
 
-  const available = Math.max(0, toNumberSafe(downgradedHarvest._sum.amount) - toNumberSafe(processed._sum.amount));
-  res.json({ downgraded_stock: available });
+  // 2) รวม “น้ำหนักที่นำไปแปรรูปแล้ว”
+  const processed = await prisma.durianFruit.aggregate({
+    where: {
+      ownerId,
+      type: { in: PROCESS_TYPES },
+    },
+    _sum: { amount: true },
+  });
+
+  const totalHarvested = Number(harvested._sum.amount ?? 0);
+  const totalProcessed = Number(processed._sum.amount ?? 0);
+  const remaining = Math.max(0, totalHarvested - totalProcessed);
+
+  return res.json({ remaining });
 });
 
-const processSchema = z.object({
-  method: z.enum(Object.keys(PROCESS_METHOD_INPUT)),
+// สร้างรายการ "แปรรูป"
+const createSchema = z.object({
+  method: z.enum(["ทอด", "แช่แข็ง", "กวน", "อบแห้ง", "อื่นๆ"]),
   amountKg: z.number().positive(),
-  tree_id: z.string().optional(),
+  note: z.string().optional(),
+  // (ถ้าภายหลังอยากแนบวันที่เอง ค่อยเพิ่ม .datetime() ได้)
 });
 
 router.post("/", authenticate(), requireRole("owner"), async (req, res) => {
-  const parsed = processSchema.safeParse({
-    method: req.body.method,
-    amountKg: Number(req.body.amountKg ?? req.body.amount_kg ?? req.body.weight_kg),
-    tree_id: req.body.tree_id,
+  const parsed = createSchema.safeParse({
+    method: req.body?.method,
+    amountKg: Number(req.body?.amountKg),
+    note: req.body?.note,
   });
+
   if (!parsed.success) {
     return res.status(400).json({ message: "ข้อมูลไม่ถูกต้อง", details: parsed.error.flatten() });
   }
 
-  const { method, amountKg, tree_id } = parsed.data;
-  const stockResp = await prisma.durianFruit.aggregate({
-    _sum: { amount: true },
-    where: {
-      grade: "fallen",
-      NOT: { type: { in: [...PROCESS_TYPE_VALUES, "export"] } },
-    },
-  });
-  const processedResp = await prisma.durianFruit.aggregate({
-    _sum: { amount: true },
-    where: { type: { in: PROCESS_TYPE_VALUES } },
-  });
+  // map ป้ายภาษาไทย -> enum code (fry/freeze/jam/dry/other)
+  const methodCode = normalizeFruitFlowCode(parsed.data.method);
+  if (!PROCESS_TYPES.includes(methodCode)) {
+    return res.status(400).json({ message: "วิธีการแปรรูปไม่ถูกต้อง" });
+  }
 
-  const available = Math.max(0, toNumberSafe(stockResp._sum.amount) - toNumberSafe(processedResp._sum.amount));
-  if (amountKg > available) {
+  const ownerId = 1;
+
+  // กันกรณีใส่เกินสต็อก
+  const stock = await (async () => {
+    const harvested = await prisma.durianFruit.aggregate({
+      where: { ownerId, grade: FruitGrade.fallen, type: FruitFlowType.harvest },
+      _sum: { amount: true },
+    });
+    const processed = await prisma.durianFruit.aggregate({
+      where: { ownerId, type: { in: PROCESS_TYPES } },
+      _sum: { amount: true },
+    });
+    return Math.max(0, Number(harvested._sum.amount ?? 0) - Number(processed._sum.amount ?? 0));
+  })();
+
+  if (parsed.data.amountKg > stock) {
     return res.status(400).json({ message: "ปริมาณเกินกว่าทุเรียนตกเกรดคงเหลือ" });
   }
 
-  const record = await prisma.durianFruit.create({
+  // gen ไอดีผลไม้
+  const nextId = await (async () => {
+    const last = await prisma.durianFruit.findMany({ orderBy: { fruitId: "desc" }, take: 1 });
+    if (!last.length) return "F001";
+    const numeric = parseInt(String(last[0].fruitId).replace(/^F/, ""), 10) || 0;
+    return `F${String(numeric + 1).padStart(3, "0")}`;
+  })();
+
+  // บันทึกแถว "แปรรูป" ลง durian_fruit
+  // - ใส่ grade: fallen
+  // - type: methodCode
+  // - ownerId: 1
+  // - brokerId: null (เพราะเจ้าของเป็นคนทำ)
+  const rec = await prisma.durianFruit.create({
     data: {
-      fruitId: await generateFruitId(),
-      treeId: tree_id || "T-001",
-      ownerId: 1,
+      fruitId: nextId,
+      treeId: "PROCESS",          // ไม่มีต้นไม้จริง กำหนดค่า marker สั้น ๆ
+      ownerId,
       brokerId: null,
-      grade: "fallen",
-      amount: amountKg,
-      type: PROCESS_METHOD_INPUT[method],
+      grade: FruitGrade.fallen,
+      amount: parsed.data.amountKg,
+      type: methodCode,
       date: new Date(),
     },
   });
 
-  res.status(201).json({ data: mapFruit(record) });
+  return res.status(201).json({ data: mapFruit(rec) });
 });
 
-async function generateFruitId() {
-  const last = await prisma.durianFruit.findMany({ orderBy: { fruitId: "desc" }, take: 1 });
-  if (!last.length) return "F001";
-  const current = last[0].fruitId;
-  const numeric = parseInt(current.replace(/^F/, ""), 10) || 0;
-  const next = numeric + 1;
-  return `F${next.toString().padStart(3, "0")}`;
-}
+// (ตัวเลือก) รายการแปรรูปล่าสุดของ owner (ถ้าต้องใช้)
+router.get("/recent", authenticate(), requireRole("owner"), async (_req, res) => {
+  const rows = await prisma.durianFruit.findMany({
+    where: { ownerId: 1, type: { in: PROCESS_TYPES } },
+    orderBy: { date: "desc" },
+    take: 50,
+  });
+  res.json({ data: rows.map(mapFruit) });
+});
 
 export default router;
