@@ -60,7 +60,7 @@ router.get("/", authenticate(), async (req, res) => {
 });
 
 router.get("/harvest", authenticate(), async (req, res) => {
-  const { broker_id: brokerIdParam, start, end } = req.query;
+  const { broker_id: brokerIdParam, tree_id: treeIdParam, start, end } = req.query;
   const where = { NOT: { type: { in: ["export", ...PROCESS_TYPE_VALUES] } } };
 
   if (req.user.role === "broker") {
@@ -69,6 +69,10 @@ router.get("/harvest", authenticate(), async (req, res) => {
 
   if (brokerIdParam) {
     where.brokerId = String(brokerIdParam);
+  }
+
+  if (treeIdParam) {
+    where.treeId = String(treeIdParam);
   }
 
   if (start) {
@@ -93,13 +97,18 @@ router.get("/harvest", authenticate(), async (req, res) => {
 });
 
 router.get("/harvest/summary", authenticate(), async (req, res) => {
-  const { broker_id: brokerIdParam, start, end } = req.query;
+  const { broker_id: brokerIdParam, tree_id: treeIdParam, start, end } = req.query;
   let brokerId = null;
   if (req.user.role === "broker") {
     brokerId = req.user.id;
   }
   if (brokerIdParam) {
     brokerId = String(brokerIdParam);
+  }
+
+  let treeId = null;
+  if (treeIdParam) {
+    treeId = String(treeIdParam);
   }
 
   let startDate;
@@ -118,7 +127,7 @@ router.get("/harvest/summary", authenticate(), async (req, res) => {
     }
   }
 
-  const summary = await sumHarvestByGrade({ brokerId, ownerId: 1, start: startDate, end: endDate });
+  const summary = await sumHarvestByGrade({ brokerId, ownerId: 1, treeId, start: startDate, end: endDate });
   res.json({ summary });
 });
 

@@ -11,6 +11,16 @@ import {
   listHarvestOnly,
   listFruitsByDateRangeHarvestOnly,
 } from "../../api/fruits";
+import { listTrees } from "../../api/trees";
+
+const GRADE_SUMMARY_TEMPLATE = Object.freeze(
+  Object.fromEntries(GRADES.map((grade) => [grade, 0]))
+);
+
+const createEmptySummary = () => ({
+  sum_weight: 0,
+  by_grade: { ...GRADE_SUMMARY_TEMPLATE },
+});
 
 const GRADE_SUMMARY_TEMPLATE = Object.freeze(
   Object.fromEntries(GRADES.map((grade) => [grade, 0]))
@@ -34,12 +44,36 @@ export default function OwnerHarvest() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
   const [summary, setSummary] = useState(() => createEmptySummary());
+  const [trees, setTrees] = useState([]);
+  const [loadingTrees, setLoadingTrees] = useState(true);
 
   // ฟิลเตอร์
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [gradeFilter, setGradeFilter] = useState("ทั้งหมด");
+  const [treeFilter, setTreeFilter] = useState("ทั้งหมด");
   const [q, setQ] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        setLoadingTrees(true);
+        const data = await listTrees();
+        if (!alive) return;
+        setTrees(data);
+      } catch (e) {
+        if (!alive) return;
+        setTrees([]);
+      } finally {
+        if (!alive) return;
+        setLoadingTrees(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -50,11 +84,12 @@ export default function OwnerHarvest() {
         const endISO = endDate
           ? new Date(endDate + "T23:59:59").toISOString()
           : undefined;
+        const tree_id = treeFilter && treeFilter !== "ทั้งหมด" ? treeFilter : undefined;
         const [data, sum] = await Promise.all([
           startISO || endISO
-            ? listFruitsByDateRangeHarvestOnly({ startISO, endISO })
-            : listHarvestOnly(),
-          getHarvestSummary({ startISO, endISO }),
+            ? listFruitsByDateRangeHarvestOnly({ startISO, endISO, tree_id })
+            : listHarvestOnly({ tree_id }),
+          getHarvestSummary({ startISO, endISO, tree_id }),
         ]);
         if (!alive) return;
         setRows(data);
@@ -72,7 +107,7 @@ export default function OwnerHarvest() {
     return () => {
       alive = false;
     };
-  }, [startDate, endDate]);
+  }, [startDate, endDate, treeFilter]);
 
   const fmtDT = (iso) =>
     new Date(iso).toLocaleString("th-TH", {
@@ -89,16 +124,19 @@ export default function OwnerHarvest() {
     if (gradeFilter !== "ทั้งหมด")
       list = list.filter((x) => x.grade === gradeFilter);
 
+    if (treeFilter !== "ทั้งหมด")
+      list = list.filter((x) => x.tree_id === treeFilter);
+
     const k = q.trim().toLowerCase();
     if (!k) return list;
     return list.filter((x) =>
-      `${x.id} ${x.grade} ${x.weight_kg} ${x.note ?? ""} ${
+      `${x.id} ${x.tree_id ?? ""} ${x.grade} ${x.weight_kg} ${x.note ?? ""} ${
         x.broker_id ?? ""
       }`
         .toLowerCase()
         .includes(k)
     );
-  }, [rows, gradeFilter, q]);
+  }, [rows, gradeFilter, treeFilter, q]);
 
   return (
     <div
@@ -147,6 +185,24 @@ export default function OwnerHarvest() {
                     onChange={(e) => setEndDate(e.target.value)}
                     className="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
                   />
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-600 mb-1">
+                    ต้นทุเรียน
+                  </label>
+                  <select
+                    value={treeFilter}
+                    onChange={(e) => setTreeFilter(e.target.value)}
+                    className="w-full border rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                    disabled={loadingTrees}
+                  >
+                    <option value="ทั้งหมด">ทั้งหมด</option>
+                    {trees.map((t) => (
+                      <option key={t.tree_id} value={t.tree_id}>
+                        {t.tree_id}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-sm text-slate-600 mb-1">

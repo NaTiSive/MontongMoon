@@ -20,21 +20,29 @@ export async function listFruits() {
   return res?.data ?? [];
 }
 
-export async function listHarvestOnly() {
-  const res = await request("/fruits/harvest");
+export async function listHarvestOnly({ tree_id } = {}) {
+  const params = new URLSearchParams();
+  if (tree_id) params.append("tree_id", tree_id);
+  const query = params.toString();
+  const res = await request(`/fruits/harvest${query ? `?${query}` : ""}`);
   return res?.data ?? [];
 }
 
-export async function listFruitsByBrokerHarvestOnly(broker_id) {
-  const res = await request(`/fruits/harvest?broker_id=${broker_id ?? ""}`);
+export async function listFruitsByBrokerHarvestOnly({ broker_id, tree_id } = {}) {
+  const params = new URLSearchParams();
+  if (broker_id) params.append("broker_id", broker_id);
+  if (tree_id) params.append("tree_id", tree_id);
+  const query = params.toString();
+  const res = await request(`/fruits/harvest${query ? `?${query}` : ""}`);
   return res?.data ?? [];
 }
 
-export async function listFruitsByDateRangeHarvestOnly({ startISO, endISO, broker_id } = {}) {
+export async function listFruitsByDateRangeHarvestOnly({ startISO, endISO, broker_id, tree_id } = {}) {
   const params = new URLSearchParams();
   if (startISO) params.append("start", startISO);
   if (endISO) params.append("end", endISO);
   if (broker_id) params.append("broker_id", broker_id);
+  if (tree_id) params.append("tree_id", tree_id);
   const query = params.toString();
   const res = await request(`/fruits/harvest${query ? `?${query}` : ""}`);
   return res?.data ?? [];
@@ -44,13 +52,14 @@ const EMPTY_SUMMARY = Object.freeze(
   Object.fromEntries(GRADES.map((grade) => [grade, 0]))
 );
 
-export async function getHarvestSummary({ startISO, endISO, broker_id } = {}) {
+export async function getHarvestSummary({ startISO, endISO, broker_id, tree_id } = {}) {
   const params = new URLSearchParams();
   if (startISO) params.append("start", startISO);
   if (endISO) params.append("end", endISO);
   if (broker_id) params.append("broker_id", broker_id);
+  if (tree_id) params.append("tree_id", tree_id);
   const query = params.toString();
-  const res = await request(`/fruits/harvest/summary${query ? `?${query}` : ""}`);
+  const res = await request(`/trees/harvest/summary${query ? `?${query}` : ""}`);
   const summary = res?.summary ?? {};
   const byGrade = { ...EMPTY_SUMMARY };
   if (summary.by_grade) {
