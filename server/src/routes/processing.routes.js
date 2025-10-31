@@ -6,18 +6,23 @@ import { mapFruit, toNumberSafe } from "../utils/formatters.js";
 
 const router = Router();
 
+const PROCESSING_TYPES = ["ทอด", "แช่แข็ง", "กวน", "อบแห้ง", "อื่นๆ"];
+
 router.get("/stock", authenticate(), requireRole("owner"), async (req, res) => {
   const downgradedHarvest = await prisma.durianFruit.aggregate({
-    _sum: { amount: true },
+     _sum: { amount: true },
     where: {
       grade: "fallen",
-      NOT: { type: { in: ["process", "export"] } },
+      NOT: { type: { in: PROCESSING_TYPES } },
     },
   });
 
   const processed = await prisma.durianFruit.aggregate({
     _sum: { amount: true },
-    where: { type: "process" },
+    where: {
+      grade: "fallen", // (จำเป็นต้องใส่เผื่อไว้)
+      type: { in: PROCESSING_TYPES }, // หายอดรวมที่ถูกแปรรูปไปแล้ว
+    },
   });
 
   const available = Math.max(0, toNumberSafe(downgradedHarvest._sum.amount) - toNumberSafe(processed._sum.amount));
@@ -39,21 +44,31 @@ router.post("/", authenticate(), requireRole("owner"), async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ message: "ข้อมูลไม่ถูกต้อง", details: parsed.error.flatten() });
   }
+  const totalFallenIn = await prisma.durianFruit.aggregate({
+    _sum: { amount: true }, where: { grade: "fallen", type: "เก็บเกี่ยว" }
+  });
+  const totalFallenUsed = await prisma.durianFruit.aggregate({
+    _sum: { amount: true }, where: { grade: "fallen", type: { in: PROCESSING_TYPES } }
+  });
 
   const { method, amountKg, tree_id } = parsed.data;
-  const stockResp = await prisma.durianFruit.aggregate({
-    _sum: { amount: true },
+  const downgradedHarvest = await prisma.durianFruit.aggregate({
+     _sum: { amount: true },
     where: {
       grade: "fallen",
-      NOT: { type: { in: ["process", "export"] } },
+      NOT: { type: { in: PROCESSING_TYPES } },
     },
   });
-  const processedResp = await prisma.durianFruit.aggregate({
+
+  const processed = await prisma.durianFruit.aggregate({
     _sum: { amount: true },
-    where: { type: "process" },
+    where: {
+      grade: "fallen", // (จำเป็นต้องใส่เผื่อไว้)
+      type: { in: PROCESSING_TYPES }, // หายอดรวมที่ถูกแปรรูปไปแล้ว
+    },
   });
 
-  const available = Math.max(0, toNumberSafe(stockResp._sum.amount) - toNumberSafe(processedResp._sum.amount));
+  const available = Math.max(0, toNumberSafe(downgradedHarvest._sum.amount) - toNumberSafe(processed._sum.amount));
   if (amountKg > available) {
     return res.status(400).json({ message: "ปริมาณเกินกว่าทุเรียนตกเกรดคงเหลือ" });
   }
@@ -66,7 +81,7 @@ router.post("/", authenticate(), requireRole("owner"), async (req, res) => {
       brokerId: null,
       grade: "fallen",
       amount: amountKg,
-      type: "process",
+      type: method,
       date: new Date(),
     },
   });

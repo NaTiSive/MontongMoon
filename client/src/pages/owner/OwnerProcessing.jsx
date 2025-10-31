@@ -10,6 +10,8 @@ import { useNavigate } from "react-router-dom";
 import { createProcessingRecord, getDowngradedStock } from "../../api/processing";
 import { listProcessedFruits } from "../../api/fruits";
 
+const PROCESSING_TYPES = ["ทอด", "แช่แข็ง", "กวน", "อบแห้ง", "อื่นๆ"];
+
 export default function OwnerProcessing() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -57,7 +59,6 @@ export default function OwnerProcessing() {
   const [form, setForm] = useState({
     method: "", // วิธีแปรรูป (ทอด/แช่แข็ง/กวน/อบแห้ง/อื่นๆ)
     amountKg: "", // ปริมาณที่จะใช้แปรรูป (kg)
-    note: "",
   });
 
   const onChange = (k) => (e) =>
@@ -100,7 +101,7 @@ export default function OwnerProcessing() {
         amountKg: amount,
         note: form.note?.trim() || "",
       });
-      setForm({ method: "", amountKg: "", note: "" });
+      setForm({ method: "", amountKg: "" });
       await reloadData();
       alert("บันทึกการแปรรูปสำเร็จ");
       // กลับ Dashboard ตาม UC11 ข้อ 15 (ถ้ายังไม่ต้อง redirect ให้คอมเมนต์บรรทัดล่างไว้ได้)
@@ -184,15 +185,6 @@ export default function OwnerProcessing() {
                     value={form.amountKg}
                     onChange={onChange("amountKg")}
                     placeholder="เช่น 50"
-                  />
-                </div>
-
-                <div className="md:col-span-2">
-                  <InputField
-                    label="หมายเหตุ"
-                    value={form.note}
-                    onChange={onChange("note")}
-                    placeholder="รายละเอียดเพิ่มเติม (ถ้ามี)"
                   />
                 </div>
 

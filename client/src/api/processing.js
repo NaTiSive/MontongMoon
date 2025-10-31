@@ -5,10 +5,11 @@ export async function getDowngradedStock() {
   return res?.downgraded_stock ?? 0;
 }
 
-export async function createProcessingRecord({ method, amountKg, note }) {
+// แก้ไข: ลบ note ออกจาก parameter และ body
+export async function createProcessingRecord({ method, amountKg }) {
   const res = await request("/processing", {
     method: "POST",
-    body: { method, amountKg, note },
+    body: { method, amountKg }, // <--- ลบ note ออก
   });
   return res?.data;
 }
