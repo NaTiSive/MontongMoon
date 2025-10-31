@@ -7,6 +7,7 @@ export async function createHarvestFruitRecord(payload) {
     method: "POST",
     body: {
       broker_id: payload?.broker_id,
+      tree_id: payload?.tree_id,
       grade: payload?.grade,
       weight_kg: payload?.weight_kg,
       note: payload?.note,
@@ -20,18 +21,10 @@ export async function listFruits() {
   return res?.data ?? [];
 }
 
-export async function listHarvestOnly({ tree_id } = {}) {
+export async function listHarvestOnly({ tree_id, broker_id } = {}) {
   const params = new URLSearchParams();
   if (tree_id) params.append("tree_id", tree_id);
-  const query = params.toString();
-  const res = await request(`/fruits/harvest${query ? `?${query}` : ""}`);
-  return res?.data ?? [];
-}
-
-export async function listFruitsByBrokerHarvestOnly({ broker_id, tree_id } = {}) {
-  const params = new URLSearchParams();
   if (broker_id) params.append("broker_id", broker_id);
-  if (tree_id) params.append("tree_id", tree_id);
   const query = params.toString();
   const res = await request(`/fruits/harvest${query ? `?${query}` : ""}`);
   return res?.data ?? [];

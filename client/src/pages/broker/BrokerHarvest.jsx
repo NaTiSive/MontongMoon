@@ -10,7 +10,7 @@ import {
   GRADES,
   createHarvestFruitRecord,
   getHarvestSummary,
-  listFruitsByBrokerHarvestOnly,
+  listHarvestOnly,
   listFruitsByDateRangeHarvestOnly,
 } from "../../api/fruits";
 import { listTrees } from "../../api/trees";
@@ -47,16 +47,17 @@ export default function BrokerHarvest() {
   const [treeFilter, setTreeFilter] = useState("ทั้งหมด");
   const [q, setQ] = useState("");
   const [form, setForm] = useState({ tree_id: "", grade: "A", weight_kg: "", note: "" });
+  const brokerId = user?.broker_id || null;
 
   useEffect(() => {
     let alive = true;
-    if (!user?.broker_id) return () => {
+    if (!brokerId) return () => {
       alive = false;
     };
     (async () => {
       try {
         setLoadingTrees(true);
-        const data = await listTrees({ broker_id: user.broker_id });
+        const data = await listTrees({ broker_id: brokerId });
         if (!alive) return;
         setTrees(data);
         if (!form.tree_id && data.length) {
@@ -73,12 +74,12 @@ export default function BrokerHarvest() {
     return () => {
       alive = false;
     };
-  }, [user?.broker_id, startDate, endDate, treeFilter]);
+  }, [brokerId]);
 
   // ─────────── โหลดข้อมูล ───────────
   useEffect(() => {
     let alive = true;
-    if (!user?.broker_id) return () => { alive = false; };
+    if (!brokerId) return () => { alive = false; };
     (async () => {
       try {
         setLoading(true);
@@ -92,11 +93,11 @@ export default function BrokerHarvest() {
             ? listFruitsByDateRangeHarvestOnly({
                 startISO,
                 endISO,
-                broker_id: user?.broker_id,
+                broker_id: brokerId,
                 tree_id,
               })
-            : listFruitsByBrokerHarvestOnly({ broker_id: user?.broker_id, tree_id }),
-          getHarvestSummary({ startISO, endISO, broker_id: user?.broker_id, tree_id }),
+            : listHarvestOnly({ broker_id: brokerId, tree_id }),
+          getHarvestSummary({ startISO, endISO, broker_id: brokerId, tree_id }),
         ]);
         if (!alive) return;
         setRows(data);
@@ -114,7 +115,7 @@ export default function BrokerHarvest() {
     return () => {
       alive = false;
     };
-  }, [user?.broker_id, startDate, endDate, treeFilter]);
+  }, [brokerId, startDate, endDate, treeFilter]);
 
   // ─────────── เพิ่มข้อมูลเก็บเกี่ยว ───────────
   const add = async () => {
@@ -124,7 +125,7 @@ export default function BrokerHarvest() {
       if (!w || w <= 0) return alert("กรุณาระบุน้ำหนักที่ถูกต้อง");
 
       const rec = await createHarvestFruitRecord({
-        broker_id: user?.broker_id,
+        broker_id: brokerId,
         tree_id: form.tree_id,
         grade: form.grade,
         weight_kg: w,
@@ -139,7 +140,7 @@ export default function BrokerHarvest() {
       const sum = await getHarvestSummary({
         startISO,
         endISO,
-        broker_id: user?.broker_id,
+        broker_id: brokerId,
         tree_id,
       });
       setSummary(sum);
