@@ -139,8 +139,28 @@ export function mapFruit(record) {
   };
 }
 
+function sumGradesFromFruits(fruits = []) {
+  const totals = { A: 0, B: 0, C: 0 };
+  for (const item of fruits) {
+    const fruit = item?.fruit ?? item;
+    if (!fruit) continue;
+    if (fruit.type !== "export") continue;
+    if (!Object.prototype.hasOwnProperty.call(totals, fruit.grade)) continue;
+    totals[fruit.grade] += toNumber(fruit.amount);
+  }
+  return totals;
+}
+
 export function mapExportRequest(req) {
   if (!req) return null;
+  const totals = Array.isArray(req.fruits) && req.fruits.length > 0
+    ? sumGradesFromFruits(req.fruits)
+    : {
+        A: toNumber(req.gradeA),
+        B: toNumber(req.gradeB),
+        C: toNumber(req.gradeC),
+      };
+  const totalWeight = Number(totals.A + totals.B + totals.C);
   return {
     id: req.id,
     broker_id: req.brokerId,
@@ -148,9 +168,10 @@ export function mapExportRequest(req) {
     created_at: req.createdAt?.toISOString?.() ?? req.createdAt,
     updated_at: req.updatedAt?.toISOString?.() ?? req.updatedAt,
     grades: {
-      A: toNumber(req.gradeA),
-      B: toNumber(req.gradeB),
-      C: toNumber(req.gradeC),
+      A: Number(totals.A),
+      B: Number(totals.B),
+      C: Number(totals.C),
+      total: Number(totalWeight),
     },
   };
 }

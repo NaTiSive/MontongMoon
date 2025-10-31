@@ -164,8 +164,21 @@ model ExportRequest {
   updatedAt DateTime            @map("updated_at") @updatedAt
 
   broker Broker @relation(fields: [brokerId], references: [brokerId])
+  fruits ExportRequestFruit[]
 
   @@map("export_request")
+}
+
+model ExportRequestFruit {
+  id        Int    @id @default(autoincrement()) @map("id")
+  requestId String @map("request_id")
+  fruitId   String @map("fruit_id")
+
+  request ExportRequest @relation(fields: [requestId], references: [id])
+  fruit   DurianFruit  @relation(fields: [fruitId], references: [fruitId])
+
+  @@unique([requestId, fruitId], name: "uniq_export_request_fruit")
+  @@map("export_request_fruit")
 }
 
 model Activity {
@@ -236,6 +249,7 @@ model DurianFruit {
   owner  Owner        @relation(fields: [ownerId], references: [ownerId])
   broker Broker?      @relation(fields: [brokerId], references: [brokerId])
   tree   DurianTree   @relation(fields: [treeId], references: [treeId])
+  exportRequests ExportRequestFruit[]
 
   @@index([treeId], name: "idx_fruit_tree")
   @@index([brokerId], name: "idx_fruit_broker")

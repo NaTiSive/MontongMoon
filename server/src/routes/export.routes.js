@@ -6,14 +6,164 @@ import { mapExportRequest, mapFruit } from "../utils/formatters.js";
 import { computeNetStockByGrade } from "../utils/fruits.js";
 
 const router = Router();
+const EXPORT_GRADES = ["A", "B", "C"];
+const EPSILON = 1e-6;
 
 async function getStockByGrade(brokerId) {
   const { by_grade } = await computeNetStockByGrade({ brokerId, ownerId: 1 });
   const grades = { A: 0, B: 0, C: 0 };
-  for (const grade of ["A", "B", "C"]) {
+  for (const grade of EXPORT_GRADES) {
     grades[grade] = Math.max(0, Number(by_grade?.[grade] ?? 0));
   }
   return grades;
+}
+
+function sumGradesFromFruits(fruits = []) {
+  const totals = { A: 0, B: 0, C: 0 };
+  for (const fruit of fruits) {
+    if (!fruit || fruit.type !== "export") continue;
+    if (!EXPORT_GRADES.includes(fruit.grade)) continue;
+    totals[fruit.grade] += Number(fruit.amount ?? 0);
+  }
+  return totals;
+}
+
+async function getRequestWithFruits(id, tx = prisma) {
+  return tx.exportRequest.findUnique({
+    where: { id },
+    include: { fruits: { include: { fruit: true } } },
+  });
+}
+
+async function nextFruitId(tx) {
+  const last = await tx.durianFruit.findMany({ orderBy: { fruitId: "desc" }, take: 1 });
+  if (!last.length) return "F001";
+  const current = last[0].fruitId;
+  const numeric = parseInt(current.replace(/^F/, ""), 10) || 0;
+  const next = numeric + 1;
+  return `F${next.toString().padStart(3, "0")}`;
+}
+
+async function nextAccountId(tx) {
+  const last = await tx.account.findMany({ orderBy: { accountId: "desc" }, take: 1 });
+  if (!last.length) return "AC001";
+  const current = last[0].accountId;
+  const numeric = parseInt(current.replace(/^AC/, ""), 10) || 0;
+  const next = numeric + 1;
+  return `AC${next.toString().padStart(3, "0")}`;
+}
+
+async function reserveExportFruits(tx, brokerId, grades) {
+  const reserved = [];
+  for (const grade of EXPORT_GRADES) {
+    let remaining = Number(grades[grade] || 0);
+    if (remaining <= EPSILON) continue;
+    const harvestRecords = await tx.durianFruit.findMany({
+      where: { brokerId, grade, type: "harvest" },
+      orderBy: [{ date: "asc" }, { fruitId: "asc" }],
+    });
+
+    for (const record of harvestRecords) {
+      if (remaining <= EPSILON) break;
+      const available = Number(record.amount);
+      if (available <= EPSILON) continue;
+
+      if (available <= remaining + EPSILON) {
+        remaining -= available;
+        const updated = await tx.durianFruit.update({
+          where: { fruitId: record.fruitId },
+          data: { type: "export" },
+        });
+        reserved.push(updated);
+      } else {
+        const leftover = available - remaining;
+        await tx.durianFruit.update({
+          where: { fruitId: record.fruitId },
+          data: { amount: leftover },
+        });
+        const newRecord = await tx.durianFruit.create({
+          data: {
+            fruitId: await nextFruitId(tx),
+            treeId: record.treeId,
+            ownerId: record.ownerId,
+            brokerId: record.brokerId,
+            grade: record.grade,
+            amount: remaining,
+            type: "export",
+            date: record.date,
+          },
+        });
+        reserved.push(newRecord);
+        remaining = 0;
+      }
+    }
+
+    if (remaining > EPSILON) {
+      throw new Error("สต็อกไม่พอสำหรับการจอง");
+    }
+  }
+  return reserved;
+}
+
+async function linkReservedFruits(tx, requestId, fruits) {
+  if (!fruits.length) return;
+  await tx.exportRequestFruit.createMany({
+    data: fruits.map((fruit) => ({ requestId, fruitId: fruit.fruitId })),
+    skipDuplicates: true,
+  });
+}
+
+async function releaseReservedFruits(tx, requestId) {
+  const assignments = await tx.exportRequestFruit.findMany({
+    where: { requestId },
+    include: { fruit: true },
+  });
+  const released = [];
+  for (const assignment of assignments) {
+    const fruit = assignment.fruit;
+    if (!fruit || fruit.type !== "export") continue;
+    const updated = await tx.durianFruit.update({
+      where: { fruitId: fruit.fruitId },
+      data: { type: "harvest" },
+    });
+    released.push(updated);
+  }
+  return released;
+}
+
+async function getLatestAcceptedContract(brokerId) {
+  return prisma.contract.findFirst({
+    where: { brokerId, status: "accepted" },
+    orderBy: { contractDate: "desc" },
+    include: { prices: true },
+  });
+}
+
+async function bookRevenue(tx, brokerId, contract, grades, reqId) {
+  const priceMap = (contract?.prices || []).reduce((acc, price) => {
+    acc[price.grade] = Number(price.price);
+    return acc;
+  }, {});
+  for (const grade of EXPORT_GRADES) {
+    const weight = Number(grades[grade] || 0);
+    const price = Number(priceMap[grade] || 0);
+    if (weight > EPSILON && price > 0) {
+      await tx.account.create({
+        data: {
+          accountId: await nextAccountId(tx),
+          ownerId: 1,
+          brokerId,
+          type: "income",
+          amount: weight * price,
+          paymentMethod: "bankTransfer",
+          note: `รายรับจากส่งออก เกรด ${grade} = ${weight} กก. x ${price} บาท/กก. (req ${reqId.slice(0, 8)})`,
+          invoiceRef: `EXPORT-${reqId.slice(0, 8)}-${grade}`,
+          status: "pending",
+          date: new Date(),
+        },
+      });
+    }
+  }
 }
 
 router.get("/stock", authenticate(), async (req, res) => {
@@ -44,7 +194,7 @@ router.post("/requests", authenticate(), requireRole("broker"), async (req, res)
   }
 
   const { grades } = parsed.data;
-  if ([grades.A, grades.B, grades.C].every((v) => v <= 0)) {
+  if (EXPORT_GRADES.every((grade) => Number(grades[grade] || 0) <= EPSILON)) {
     return res.status(400).json({ message: "น้ำหนักอย่างน้อยหนึ่งเกรดต้องมากกว่า 0" });
   }
 
@@ -53,17 +203,40 @@ router.post("/requests", authenticate(), requireRole("broker"), async (req, res)
     return res.status(400).json({ message: "น้ำหนักบางเกรดเกินกว่าสต็อกพร้อมส่งออก" });
   }
 
-  const request = await prisma.exportRequest.create({
-    data: {
-      brokerId: req.user.id,
-      gradeA: grades.A,
-      gradeB: grades.B,
-      gradeC: grades.C,
-      status: "pending",
-    },
-  });
+  try {
+    const created = await prisma.$transaction(async (tx) => {
+      const request = await tx.exportRequest.create({
+        data: {
+          brokerId: req.user.id,
+          gradeA: grades.A,
+          gradeB: grades.B,
+          gradeC: grades.C,
+          status: "pending",
+        },
+      });
 
-  res.status(201).json({ data: mapExportRequest(request) });
+      const reserved = await reserveExportFruits(tx, req.user.id, grades);
+      if (!reserved.length) {
+        throw new Error("ไม่สามารถจองผลผลิตได้");
+      }
+
+      await linkReservedFruits(tx, request.id, reserved);
+      const totals = sumGradesFromFruits(reserved);
+      return tx.exportRequest.update({
+        where: { id: request.id },
+        data: {
+          gradeA: totals.A,
+          gradeB: totals.B,
+          gradeC: totals.C,
+        },
+        include: { fruits: { include: { fruit: true } } },
+      });
+    });
+
+    res.status(201).json({ data: mapExportRequest(created) });
+  } catch (err) {
+    res.status(400).json({ message: err.message || "ไม่สามารถสร้างคำขอได้" });
+  }
 });
 
 router.get("/requests", authenticate(), async (req, res) => {
@@ -78,140 +251,39 @@ router.get("/requests", authenticate(), async (req, res) => {
   const requests = await prisma.exportRequest.findMany({
     where,
     orderBy: { createdAt: "desc" },
+    include: { fruits: { include: { fruit: true } } },
   });
   res.json({ data: requests.map(mapExportRequest) });
 });
 
 router.post("/requests/:id/withdraw", authenticate(), requireRole("broker"), async (req, res) => {
   const { id } = req.params;
-  const request = await prisma.exportRequest.findUnique({ where: { id } });
+  const request = await getRequestWithFruits(id);
   if (!request || request.brokerId !== req.user.id) {
     return res.status(404).json({ message: "ไม่พบคำขอ" });
   }
   if (request.status !== "pending") {
     return res.status(400).json({ message: "ยกเลิกได้เฉพาะคำขอที่ยังรอการยืนยันเท่านั้น" });
   }
-  const updated = await prisma.exportRequest.update({
-    where: { id },
-    data: { status: "withdrawn" },
+
+  const updated = await prisma.$transaction(async (tx) => {
+    await releaseReservedFruits(tx, id);
+    return tx.exportRequest.update({
+      where: { id },
+      data: { status: "withdrawn" },
+      include: { fruits: { include: { fruit: true } } },
+    });
   });
+
   res.json({ data: mapExportRequest(updated) });
 });
 
-async function getLatestAcceptedContract(brokerId) {
-  return prisma.contract.findFirst({
-    where: { brokerId, status: "accepted" },
-    orderBy: { contractDate: "desc" },
-    include: { prices: true },
-  });
-}
-
-async function nextFruitId(tx) {
-  const last = await tx.durianFruit.findMany({ orderBy: { fruitId: "desc" }, take: 1 });
-  if (!last.length) return "F001";
-  const current = last[0].fruitId;
-  const numeric = parseInt(current.replace(/^F/, ""), 10) || 0;
-  const next = numeric + 1;
-  return `F${next.toString().padStart(3, "0")}`;
-}
-
-async function nextAccountId(tx) {
-  const last = await tx.account.findMany({ orderBy: { accountId: "desc" }, take: 1 });
-  if (!last.length) return "AC001";
-  const current = last[0].accountId;
-  const numeric = parseInt(current.replace(/^AC/, ""), 10) || 0;
-  const next = numeric + 1;
-  return `AC${next.toString().padStart(3, "0")}`;
-}
-
-async function applyExport(tx, brokerId, grades) {
-  const exported = [];
-  const now = new Date();
-  for (const grade of ["A", "B", "C"]) {
-    let remaining = Number(grades[grade] || 0);
-    if (remaining <= 0) continue;
-    const harvestRecords = await tx.durianFruit.findMany({
-      where: { brokerId, grade, type: "harvest" },
-      orderBy: { date: "asc" },
-    });
-
-    for (const record of harvestRecords) {
-      if (remaining <= 0) break;
-      const weight = Number(record.amount);
-      if (weight <= remaining + 1e-6) {
-        remaining -= weight;
-        const updated = await tx.durianFruit.update({
-          where: { fruitId: record.fruitId },
-          data: { type: "export", date: now },
-        });
-        exported.push(updated);
-      } else {
-        await tx.durianFruit.update({
-          where: { fruitId: record.fruitId },
-          data: { amount: weight - remaining },
-        });
-        const newRecord = await tx.durianFruit.create({
-          data: {
-            fruitId: await nextFruitId(tx),
-            treeId: record.treeId,
-            ownerId: record.ownerId,
-            brokerId: record.brokerId,
-            grade: record.grade,
-            amount: remaining,
-            type: "export",
-            date: now,
-          },
-        });
-        exported.push(newRecord);
-        remaining = 0;
-      }
-    }
-
-    if (remaining > 0) {
-      throw new Error("สต็อกไม่พอสำหรับการตัดออก");
-    }
-  }
-  return exported;
-}
-
-async function bookRevenue(tx, brokerId, contract, grades, reqId) {
-  const priceMap = (contract?.prices || []).reduce((acc, price) => {
-    acc[price.grade] = Number(price.price);
-    return acc;
-  }, {});
-  for (const grade of ["A", "B", "C"]) {
-    const weight = Number(grades[grade] || 0);
-    const price = Number(priceMap[grade] || 0);
-    if (weight > 0 && price > 0) {
-      await tx.account.create({
-        data: {
-          accountId: await nextAccountId(tx),
-          ownerId: 1,
-          brokerId,
-          type: "income",
-          amount: weight * price,
-          paymentMethod: "bankTransfer",
-          note: `รายรับจากส่งออก เกรด ${grade} = ${weight} กก. x ${price} บาท/กก. (req ${reqId.slice(0, 8)})`,
-          invoiceRef: `EXPORT-${reqId.slice(0, 8)}-${grade}`,
-          status: "pending",
-          date: new Date(),
-        },
-      });
-    }
-  }
-}
-
 router.post("/requests/:id/approve", authenticate(), requireRole("owner"), async (req, res) => {
   const { id } = req.params;
-  const request = await prisma.exportRequest.findUnique({ where: { id } });
+  const request = await getRequestWithFruits(id);
   if (!request) return res.status(404).json({ message: "ไม่พบคำขอ" });
   if (request.status !== "pending") {
     return res.status(400).json({ message: "คำขอไม่ได้อยู่ในสถานะรอการยืนยัน" });
-  }
-
-  const stock = await getStockByGrade(request.brokerId);
-  if (Number(request.gradeA) > stock.A || Number(request.gradeB) > stock.B || Number(request.gradeC) > stock.C) {
-    return res.status(400).json({ message: "สต็อกไม่พอสำหรับคำขอนี้" });
   }
 
   const contract = await getLatestAcceptedContract(request.brokerId);
@@ -221,19 +293,37 @@ router.post("/requests/:id/approve", authenticate(), requireRole("owner"), async
 
   try {
     const result = await prisma.$transaction(async (tx) => {
-      const exported = await applyExport(tx, request.brokerId, {
-        A: Number(request.gradeA),
-        B: Number(request.gradeB),
-        C: Number(request.gradeC),
-      });
-      await bookRevenue(tx, request.brokerId, contract, {
-        A: Number(request.gradeA),
-        B: Number(request.gradeB),
-        C: Number(request.gradeC),
-      }, request.id);
+      const current = await getRequestWithFruits(id, tx);
+      const reservedFruits = (current?.fruits || [])
+        .map((item) => item.fruit)
+        .filter((fruit) => fruit && fruit.type === "export");
+      const totals = sumGradesFromFruits(reservedFruits);
+      const totalWeight = totals.A + totals.B + totals.C;
+      if (!reservedFruits.length || totalWeight <= EPSILON) {
+        throw new Error("ไม่พบผลผลิตที่จองไว้สำหรับคำขอนี้");
+      }
+
+      const now = new Date();
+      const exported = [];
+      for (const fruit of reservedFruits) {
+        const updatedFruit = await tx.durianFruit.update({
+          where: { fruitId: fruit.fruitId },
+          data: { date: now },
+        });
+        exported.push(updatedFruit);
+      }
+
+      await bookRevenue(tx, current.brokerId, contract, totals, current.id);
+
       const updatedRequest = await tx.exportRequest.update({
         where: { id },
-        data: { status: "confirmed" },
+        data: {
+          status: "confirmed",
+          gradeA: totals.A,
+          gradeB: totals.B,
+          gradeC: totals.C,
+        },
+        include: { fruits: { include: { fruit: true } } },
       });
 
       return { updatedRequest, exported };
@@ -252,12 +342,21 @@ router.post("/requests/:id/approve", authenticate(), requireRole("owner"), async
 
 router.post("/requests/:id/reject", authenticate(), requireRole("owner"), async (req, res) => {
   const { id } = req.params;
-  const request = await prisma.exportRequest.findUnique({ where: { id } });
+  const request = await getRequestWithFruits(id);
   if (!request) return res.status(404).json({ message: "ไม่พบคำขอ" });
   if (request.status !== "pending") {
     return res.status(400).json({ message: "คำขอไม่ได้อยู่ในสถานะรอการยืนยัน" });
   }
-  const updated = await prisma.exportRequest.update({ where: { id }, data: { status: "rejected" } });
+
+  const updated = await prisma.$transaction(async (tx) => {
+    await releaseReservedFruits(tx, id);
+    return tx.exportRequest.update({
+      where: { id },
+      data: { status: "rejected" },
+      include: { fruits: { include: { fruit: true } } },
+    });
+  });
+
   res.json({ data: mapExportRequest(updated) });
 });
 

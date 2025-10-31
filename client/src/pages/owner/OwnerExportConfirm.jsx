@@ -111,6 +111,7 @@ export default function OwnerExportConfirm() {
                       <th className="py-2 px-3">A</th>
                       <th className="py-2 px-3">B</th>
                       <th className="py-2 px-3">C</th>
+                      <th className="py-2 px-3">รวม (กก.)</th>
                       <th className="py-2 px-3">สถานะ</th>
                       <th className="py-2 px-3">การกระทำ</th>
                     </tr>
@@ -118,13 +119,13 @@ export default function OwnerExportConfirm() {
                   <tbody>
                     {loading ? (
                       <tr>
-                        <td className="py-3 px-3" colSpan={7}>
+                        <td className="py-3 px-3" colSpan={8}>
                           กำลังโหลด...
                         </td>
                       </tr>
                     ) : pending.length === 0 ? (
                       <tr>
-                        <td className="py-3 px-3" colSpan={7}>
+                        <td className="py-3 px-3" colSpan={8}>
                           ไม่มีคำขอที่รอการยืนยัน
                         </td>
                       </tr>
@@ -136,6 +137,7 @@ export default function OwnerExportConfirm() {
                           <td className="py-2 px-3">{r.grades.A}</td>
                           <td className="py-2 px-3">{r.grades.B}</td>
                           <td className="py-2 px-3">{r.grades.C}</td>
+                          <td className="py-2 px-3">{r.grades.total}</td>
                           <td className="py-2 px-3">
                             <span className="px-3 py-1 rounded-lg bg-amber-100 text-amber-700 text-xs font-medium">
                               {r.status}
@@ -174,13 +176,14 @@ export default function OwnerExportConfirm() {
                       <th className="py-2 px-3">A</th>
                       <th className="py-2 px-3">B</th>
                       <th className="py-2 px-3">C</th>
+                      <th className="py-2 px-3">รวม (กก.)</th>
                       <th className="py-2 px-3">สถานะ</th>
                     </tr>
                   </thead>
                   <tbody>
                     {history.length === 0 ? (
                       <tr>
-                        <td className="py-3 px-3" colSpan={6}>
+                        <td className="py-3 px-3" colSpan={7}>
                           ยังไม่มีคำขอส่งออก
                         </td>
                       </tr>
@@ -192,6 +195,7 @@ export default function OwnerExportConfirm() {
                           <td className="py-2 px-3">{r.grades.A}</td>
                           <td className="py-2 px-3">{r.grades.B}</td>
                           <td className="py-2 px-3">{r.grades.C}</td>
+                          <td className="py-2 px-3">{r.grades.total}</td>
                           <td className="py-2 px-3">
                             <span className="px-3 py-1 rounded-lg text-xs font-medium bg-slate-100 text-slate-700">
                               {r.status}
