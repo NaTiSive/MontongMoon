@@ -1,32 +1,19 @@
-// src/api/activities.js
-const KEY = "mm:activities@v1";
+import { request } from "./http";
 
-function load() {
-  return JSON.parse(localStorage.getItem(KEY) || "[]");
-}
-function save(data) {
-  localStorage.setItem(KEY, JSON.stringify(data));
+export async function listActivitiesByBroker(broker_id) {
+  const res = await request(`/activities?broker_id=${broker_id ?? ""}`);
+  return res?.data ?? [];
 }
 
-export function listActivitiesByBroker(broker_id) {
-  return load().filter((a) => a.broker_id === broker_id);
+export async function listActivitiesForOwner() {
+  const res = await request("/activities");
+  return res?.data ?? [];
 }
 
-export function listActivitiesForOwner() {
-  return load();
-}
-
-export function createActivity({ broker_id, tree_id, type, note }) {
-  const all = load();
-  const act = {
-    id: crypto.randomUUID(),
-    broker_id,
-    tree_id,
-    type, // เช่น "รดน้ำ", "ใส่ปุ๋ย", "ตัดหญ้า"
-    note,
-    created_at: new Date().toISOString(),
-  };
-  all.push(act);
-  save(all);
-  return act;
+export async function createActivity({ broker_id, tree_id, type, note }) {
+  const res = await request("/activities", {
+    method: "POST",
+    body: { broker_id, tree_id, type, note },
+  });
+  return res?.data;
 }

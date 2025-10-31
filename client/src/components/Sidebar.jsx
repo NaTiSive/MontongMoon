@@ -1,5 +1,6 @@
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
+import { isApprovedStatus, normalizeApprovalStatus } from "../utils/approval";
 import { MdDashboard, MdLogout } from "react-icons/md";
 import { IoPricetag, IoWarning } from "react-icons/io5";
 import { RiTreeFill } from "react-icons/ri";
@@ -17,6 +18,8 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }) {
 
   // ===== MENU BY ROLE =====
   let menu = [];
+  const approval = normalizeApprovalStatus(user.approvalStatus);
+  const isApprovedBroker = isApprovedStatus(approval);
   if (user.role === "owner") {
     menu = [
       { id: "dashboard",    name: "แดชบอร์ด",        path: "/owner/dashboard",    icon: <MdDashboard size={18} /> },
@@ -30,7 +33,7 @@ export default function Sidebar({ isOpen = false, onClose = () => {} }) {
       { id: "activities",   name: "กิจกรรม",           path: "/owner/activities",  icon: <LuListTodo size={18} /> },
     ];
   } else if (user.role === "broker") {
-    if (user.approvalStatus === "pending") {
+    if (!isApprovedBroker) {
       menu = [
         { id: "dashboard",   name: "แดชบอร์ด",     path: "/broker/dashboard",  icon: <MdDashboard size={18} /> },
         { id: "submitoffer", name: "ยื่นข้อเสนอ",   path: "/broker/offers",     icon: <IoPricetag size={18} /> },
