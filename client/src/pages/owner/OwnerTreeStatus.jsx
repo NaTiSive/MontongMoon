@@ -24,15 +24,25 @@ export default function OwnerTreeStatus() {
   }, [user, navigate]);
 
   useEffect(() => {
-    try {
-      setLoading(true);
-      const t = listTrees() || [];
-      setTrees(t);
-    } catch (e) {
-      setErr(e?.message || "โหลดข้อมูลไม่สำเร็จ");
-    } finally {
-      setLoading(false);
-    }
+    let alive = true;
+    (async () => {
+      try {
+        setLoading(true);
+        const t = await listTrees();
+        if (!alive) return;
+        setTrees(t || []);
+        setErr("");
+      } catch (e) {
+        if (!alive) return;
+        setErr(e?.message || "โหลดข้อมูลไม่สำเร็จ");
+      } finally {
+        if (!alive) return;
+        setLoading(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
   }, []);
 
   // ---------- สีแต่ละสถานะ ----------
