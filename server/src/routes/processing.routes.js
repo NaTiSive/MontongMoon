@@ -3,11 +3,10 @@ import { z } from "zod";
 import prisma from "../config/prisma.js";
 import { authenticate, requireRole } from "../middleware/auth.js";
 import { FruitFlowType, FruitGrade } from "@prisma/client";
-import { mapFruit, FRUIT_PROCESS_METHOD_LABELS, normalizeFruitFlowCode } from "../utils/formatters.js";
+import { mapFruit, normalizeFruitFlowCode } from "../utils/formatters.js";
 
 const router = Router();
 
-// กลุ่มประเภท "แปรรูป" ทั้งหมด (ตาม enum)
 const PROCESS_TYPES = [
   FruitFlowType.fry,
   FruitFlowType.freeze,
@@ -16,26 +15,17 @@ const PROCESS_TYPES = [
   FruitFlowType.other,
 ];
 
-// คิด "ทุเรียนตกเกรดคงเหลือ (กก.)"
+// สต็อกตกเกรดคงเหลือ (ส่ง downgraded_stock)
 router.get("/stock", authenticate(), requireRole("owner"), async (_req, res) => {
-  const ownerId = 1; // โปรเจกต์นี้ล็อก owner เดียว
+  const ownerId = 1;
 
-  // 1) รวมตกเกรดที่ "เก็บเกี่ยว" มาแล้วทั้งหมด
   const harvested = await prisma.durianFruit.aggregate({
-    where: {
-      ownerId,
-      grade: FruitGrade.fallen,
-      type: FruitFlowType.harvest,
-    },
+    where: { ownerId, grade: FruitGrade.fallen, type: FruitFlowType.harvest },
     _sum: { amount: true },
   });
 
-  // 2) รวม “น้ำหนักที่นำไปแปรรูปแล้ว”
   const processed = await prisma.durianFruit.aggregate({
-    where: {
-      ownerId,
-      type: { in: PROCESS_TYPES },
-    },
+    where: { ownerId, type: { in: PROCESS_TYPES } },
     _sum: { amount: true },
   });
 
@@ -43,15 +33,35 @@ router.get("/stock", authenticate(), requireRole("owner"), async (_req, res) => 
   const totalProcessed = Number(processed._sum.amount ?? 0);
   const remaining = Math.max(0, totalHarvested - totalProcessed);
 
-  return res.json({ remaining });
+  return res.json({ downgraded_stock: remaining });
 });
 
-// สร้างรายการ "แปรรูป"
+// (optional) debug endpoint
+router.get("/debug/stock", authenticate(), requireRole("owner"), async (_req, res) => {
+  const ownerId = 1;
+  const harvested = await prisma.durianFruit.aggregate({
+    where: { ownerId, grade: FruitGrade.fallen, type: FruitFlowType.harvest },
+    _sum: { amount: true },
+  });
+  const processed = await prisma.durianFruit.aggregate({
+    where: { ownerId, type: { in: PROCESS_TYPES } },
+    _sum: { amount: true },
+  });
+  res.json({
+    harvested_fallen_harvest: Number(harvested._sum.amount ?? 0),
+    processed_total: Number(processed._sum.amount ?? 0),
+    downgraded_stock: Math.max(
+      0,
+      Number(harvested._sum.amount ?? 0) - Number(processed._sum.amount ?? 0)
+    ),
+  });
+});
+
+// สร้างรายการแปรรูป
 const createSchema = z.object({
   method: z.enum(["ทอด", "แช่แข็ง", "กวน", "อบแห้ง", "อื่นๆ"]),
   amountKg: z.number().positive(),
   note: z.string().optional(),
-  // (ถ้าภายหลังอยากแนบวันที่เอง ค่อยเพิ่ม .datetime() ได้)
 });
 
 router.post("/", authenticate(), requireRole("owner"), async (req, res) => {
@@ -60,12 +70,10 @@ router.post("/", authenticate(), requireRole("owner"), async (req, res) => {
     amountKg: Number(req.body?.amountKg),
     note: req.body?.note,
   });
-
   if (!parsed.success) {
     return res.status(400).json({ message: "ข้อมูลไม่ถูกต้อง", details: parsed.error.flatten() });
   }
 
-  // map ป้ายภาษาไทย -> enum code (fry/freeze/jam/dry/other)
   const methodCode = normalizeFruitFlowCode(parsed.data.method);
   if (!PROCESS_TYPES.includes(methodCode)) {
     return res.status(400).json({ message: "วิธีการแปรรูปไม่ถูกต้อง" });
@@ -73,40 +81,33 @@ router.post("/", authenticate(), requireRole("owner"), async (req, res) => {
 
   const ownerId = 1;
 
-  // กันกรณีใส่เกินสต็อก
-  const stock = await (async () => {
-    const harvested = await prisma.durianFruit.aggregate({
-      where: { ownerId, grade: FruitGrade.fallen, type: FruitFlowType.harvest },
-      _sum: { amount: true },
-    });
-    const processed = await prisma.durianFruit.aggregate({
-      where: { ownerId, type: { in: PROCESS_TYPES } },
-      _sum: { amount: true },
-    });
-    return Math.max(0, Number(harvested._sum.amount ?? 0) - Number(processed._sum.amount ?? 0));
-  })();
-
+  // กันใส่เกินสต็อก
+  const harvested = await prisma.durianFruit.aggregate({
+    where: { ownerId, grade: FruitGrade.fallen, type: FruitFlowType.harvest },
+    _sum: { amount: true },
+  });
+  const processed = await prisma.durianFruit.aggregate({
+    where: { ownerId, type: { in: PROCESS_TYPES } },
+    _sum: { amount: true },
+  });
+  const stock = Math.max(0, Number(harvested._sum.amount ?? 0) - Number(processed._sum.amount ?? 0));
   if (parsed.data.amountKg > stock) {
     return res.status(400).json({ message: "ปริมาณเกินกว่าทุเรียนตกเกรดคงเหลือ" });
   }
 
-  // gen ไอดีผลไม้
-  const nextId = await (async () => {
-    const last = await prisma.durianFruit.findMany({ orderBy: { fruitId: "desc" }, take: 1 });
-    if (!last.length) return "F001";
-    const numeric = parseInt(String(last[0].fruitId).replace(/^F/, ""), 10) || 0;
-    return `F${String(numeric + 1).padStart(3, "0")}`;
-  })();
+  // gen ไอดี
+  const last = await prisma.durianFruit.findMany({ orderBy: { fruitId: "desc" }, take: 1 });
+  const nextId =
+    last.length === 0
+      ? "F001"
+      : `F${(parseInt(String(last[0].fruitId).replace(/^F/, ""), 10) + 1)
+          .toString()
+          .padStart(3, "0")}`;
 
-  // บันทึกแถว "แปรรูป" ลง durian_fruit
-  // - ใส่ grade: fallen
-  // - type: methodCode
-  // - ownerId: 1
-  // - brokerId: null (เพราะเจ้าของเป็นคนทำ)
   const rec = await prisma.durianFruit.create({
     data: {
       fruitId: nextId,
-      treeId: "PROCESS",          // ไม่มีต้นไม้จริง กำหนดค่า marker สั้น ๆ
+      treeId: "PROCESS",
       ownerId,
       brokerId: null,
       grade: FruitGrade.fallen,
@@ -119,7 +120,7 @@ router.post("/", authenticate(), requireRole("owner"), async (req, res) => {
   return res.status(201).json({ data: mapFruit(rec) });
 });
 
-// (ตัวเลือก) รายการแปรรูปล่าสุดของ owner (ถ้าต้องใช้)
+// รายการแปรรูปล่าสุด
 router.get("/recent", authenticate(), requireRole("owner"), async (_req, res) => {
   const rows = await prisma.durianFruit.findMany({
     where: { ownerId: 1, type: { in: PROCESS_TYPES } },

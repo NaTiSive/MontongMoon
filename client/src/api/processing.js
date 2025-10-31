@@ -2,7 +2,8 @@ import { request } from "./http";
 
 export async function getDowngradedStock() {
   const res = await request("/processing/stock");
-  return Number(res?.remaining ?? 0);
+  // รองรับทั้งคีย์ใหม่และคีย์เก่า
+  return res?.downgraded_stock ?? res?.remaining ?? 0;
 }
 
 export async function createProcessingRecord({ method, amountKg, note }) {
@@ -10,5 +11,5 @@ export async function createProcessingRecord({ method, amountKg, note }) {
     method: "POST",
     body: { method, amountKg, note },
   });
-  return res?.data ?? res;
+  return res?.data;
 }
