@@ -16,9 +16,14 @@ const PROCESS_TYPES = [
   FruitFlowType.other,
 ];
 
+const getOwnerId = (req) => {
+  const rawId = req.user?.owner_id ?? req.user?.id ?? 1;
+  return Number(rawId) || 1;
+};
+
 // คิด "ทุเรียนตกเกรดคงเหลือ (กก.)"
-router.get("/stock", authenticate(), requireRole("owner"), async (_req, res) => {
-  const ownerId = 1; // โปรเจกต์นี้ล็อก owner เดียว
+router.get("/stock", authenticate(), requireRole("owner"), async (req, res) => {
+  const ownerId = getOwnerId(req);
 
   // 1) รวมตกเกรดที่ "เก็บเกี่ยว" มาแล้วทั้งหมด
   const harvested = await prisma.durianFruit.aggregate({
@@ -71,7 +76,7 @@ router.post("/", authenticate(), requireRole("owner"), async (req, res) => {
     return res.status(400).json({ message: "วิธีการแปรรูปไม่ถูกต้อง" });
   }
 
-  const ownerId = 1;
+  const ownerId = getOwnerId(req);
 
   // กันกรณีใส่เกินสต็อก
   const stock = await (async () => {
@@ -101,7 +106,7 @@ router.post("/", authenticate(), requireRole("owner"), async (req, res) => {
   // บันทึกแถว "แปรรูป" ลง durian_fruit
   // - ใส่ grade: fallen
   // - type: methodCode
-  // - ownerId: 1
+  // - ownerId: เจ้าของที่ล็อกอินอยู่
   // - brokerId: null (เพราะเจ้าของเป็นคนทำ)
   const rec = await prisma.durianFruit.create({
     data: {
@@ -120,9 +125,10 @@ router.post("/", authenticate(), requireRole("owner"), async (req, res) => {
 });
 
 // (ตัวเลือก) รายการแปรรูปล่าสุดของ owner (ถ้าต้องใช้)
-router.get("/recent", authenticate(), requireRole("owner"), async (_req, res) => {
+router.get("/recent", authenticate(), requireRole("owner"), async (req, res) => {
+  const ownerId = getOwnerId(req);
   const rows = await prisma.durianFruit.findMany({
-    where: { ownerId: 1, type: { in: PROCESS_TYPES } },
+    where: { ownerId, type: { in: PROCESS_TYPES } },
     orderBy: { date: "desc" },
     take: 50,
   });
