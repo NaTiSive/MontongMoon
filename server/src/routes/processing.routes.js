@@ -3,7 +3,13 @@ import { z } from "zod";
 import prisma from "../config/prisma.js";
 import { authenticate, requireRole } from "../middleware/auth.js";
 import { FruitFlowType, FruitGrade } from "@prisma/client";
-import { mapFruit, FRUIT_PROCESS_METHOD_LABELS, normalizeFruitFlowCode } from "../utils/formatters.js";
+import {
+  mapFruit,
+  FRUIT_PROCESS_METHOD_LABELS,
+  FRUIT_GRADE_LABELS,
+  normalizeFruitFlowCode,
+} from "../utils/formatters.js";
+import { computeNetStockByGrade } from "../utils/fruits.js";
 
 const router = Router();
 
@@ -21,33 +27,18 @@ const getOwnerId = (req) => {
   return Number(rawId) || 1;
 };
 
+const FALLEN_LABEL = FRUIT_GRADE_LABELS[FruitGrade.fallen] || "ตกเกรด";
+
+async function getDowngradedStockForOwner(ownerId) {
+  const { by_grade } = await computeNetStockByGrade({ ownerId });
+  const remaining = Number(by_grade?.[FALLEN_LABEL] ?? 0);
+  return Math.max(0, remaining);
+}
+
 // คิด "ทุเรียนตกเกรดคงเหลือ (กก.)"
 router.get("/stock", authenticate(), requireRole("owner"), async (req, res) => {
   const ownerId = getOwnerId(req);
-
-  // 1) รวมตกเกรดที่ "เก็บเกี่ยว" มาแล้วทั้งหมด
-  const harvested = await prisma.durianFruit.aggregate({
-    where: {
-      ownerId,
-      grade: FruitGrade.fallen,
-      type: FruitFlowType.harvest,
-    },
-    _sum: { amount: true },
-  });
-
-  // 2) รวม “น้ำหนักที่นำไปแปรรูปแล้ว”
-  const processed = await prisma.durianFruit.aggregate({
-    where: {
-      ownerId,
-      type: { in: PROCESS_TYPES },
-    },
-    _sum: { amount: true },
-  });
-
-  const totalHarvested = Number(harvested._sum.amount ?? 0);
-  const totalProcessed = Number(processed._sum.amount ?? 0);
-  const remaining = Math.max(0, totalHarvested - totalProcessed);
-
+  const remaining = await getDowngradedStockForOwner(ownerId);
   return res.json({ remaining });
 });
 
@@ -79,17 +70,7 @@ router.post("/", authenticate(), requireRole("owner"), async (req, res) => {
   const ownerId = getOwnerId(req);
 
   // กันกรณีใส่เกินสต็อก
-  const stock = await (async () => {
-    const harvested = await prisma.durianFruit.aggregate({
-      where: { ownerId, grade: FruitGrade.fallen, type: FruitFlowType.harvest },
-      _sum: { amount: true },
-    });
-    const processed = await prisma.durianFruit.aggregate({
-      where: { ownerId, type: { in: PROCESS_TYPES } },
-      _sum: { amount: true },
-    });
-    return Math.max(0, Number(harvested._sum.amount ?? 0) - Number(processed._sum.amount ?? 0));
-  })();
+  const stock = await getDowngradedStockForOwner(ownerId);
 
   if (parsed.data.amountKg > stock) {
     return res.status(400).json({ message: "ปริมาณเกินกว่าทุเรียนตกเกรดคงเหลือ" });
