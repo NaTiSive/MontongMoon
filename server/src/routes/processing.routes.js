@@ -5,19 +5,23 @@ import prisma from "../config/prisma.js";
 
 const router = Router();
 
-// ค่าประเภทการแปรรูป (ภาษาไทยตรง DB)
+// ประเภทการแปรรูป (ต้องตรงกับค่าที่อยู่ใน DB)
 const PROCESS_TYPES = ["ทอด", "แช่แข็ง", "กวน", "อบแห้ง", "อื่นๆ"];
 
-/* ─────────────────────────────────────────────
- * 1) สต็อกทุเรียนตกเกรดคงเหลือ (เฉพาะ type='เก็บเกี่ยว')
- * remaining = SUM(ตกเกรด & เก็บเกี่ยว) - SUM(ถูกแปรรูป)
- * ──────────────────────────────────────────── */
-// 1) สต็อกทุเรียนตกเกรดคงเหลือ (ยืดหยุ่นข้อความ + debug breakdown)
+// สคีมารับค่าจากฟอร์มแปรรูป (ยังคงรับ note ได้ แต่จะไม่บันทึกลง DB เพราะไม่มีคอลัมน์)
+const createSchema = z.object({
+  method: z.string(),
+  amountKg: z.number().positive(),
+  note: z.string().optional(), // จะไม่ถูกใช้ใน INSERT
+});
+
+// ─────────────────────────────────────────────
+// 1) สต็อกทุเรียนตกเกรดคงเหลือ (grade='ตกเกรด' & type LIKE 'เก็บเกี่ยว%')
+// ─────────────────────────────────────────────
 router.get("/stock", async (_req, res) => {
-  const ownerId = 1; // mock
+  const ownerId = 1; // mock owner
 
   try {
-    // ดึง breakdown ของทุเรียนตกเกรดตาม type ทั้งหมดของ owner นี้
     const byTypeRows = await prisma.$queryRawUnsafe(
       `SELECT TRIM(type) AS t, COALESCE(SUM(amount),0) AS sum_amount, COUNT(*) AS cnt
          FROM durian_fruit
@@ -28,20 +32,16 @@ router.get("/stock", async (_req, res) => {
       ownerId
     );
 
-    // เก็บเกี่ยว = ทุกแถวที่ type (หลัง TRIM) ขึ้นต้นด้วย "เก็บเกี่ยว"
     const harvestedSum = byTypeRows
       .filter(r => String(r.t || "").startsWith("เก็บเกี่ยว"))
       .reduce((acc, r) => acc + Number(r.sum_amount || 0), 0);
 
-    // แปรรูป = type อยู่ในชุดนี้ (หลัง TRIM)
-    const PROCESS_TYPES = ["ทอด", "แช่แข็ง", "กวน", "อบแห้ง", "อื่นๆ"];
     const processedSum = byTypeRows
       .filter(r => PROCESS_TYPES.includes(String(r.t || "")))
       .reduce((acc, r) => acc + Number(r.sum_amount || 0), 0);
 
     const remaining = Math.max(0, harvestedSum - processedSum);
 
-    // ส่ง debug กลับไปด้วย เพื่อดูใน Network → Preview
     return res.json({
       remaining,
       _debug: {
@@ -60,63 +60,57 @@ router.get("/stock", async (_req, res) => {
   }
 });
 
-
-/* ─────────────────────────────────────────────
- * 2) บันทึกการแปรรูป (Raw SQL ตามคอลัมน์จริงใน DB)
- * ──────────────────────────────────────────── */
-const createSchema = z.object({
-  method: z.string(),            // "ทอด" | "แช่แข็ง" | "กวน" | "อบแห้ง" | "อื่นๆ"
-  amountKg: z.number().positive(),
-  note: z.string().optional(),
-});
-
+// ─────────────────────────────────────────────
+// 2) บันทึกการแปรรูป (ใช้ logic เดียวกับ /stock) — ตัด note ออกจาก INSERT
+// ─────────────────────────────────────────────
 router.post("/", async (req, res) => {
   const parsed = createSchema.safeParse({
     method: req.body?.method,
     amountKg: Number(req.body?.amountKg),
-    note: req.body?.note,
+    note: req.body?.note, // รับไว้ แต่ไม่ insert
   });
 
   if (!parsed.success) {
-    return res
-      .status(400)
-      .json({ message: "ข้อมูลไม่ถูกต้อง", details: parsed.error.flatten() });
+    return res.status(400).json({
+      message: "ข้อมูลไม่ถูกต้อง",
+      details: parsed.error.flatten(),
+    });
   }
 
-  const ownerId = 1; // mock owner ชั่วคราว
+  const ownerId = 1; // mock owner
   if (!PROCESS_TYPES.includes(parsed.data.method)) {
     return res.status(400).json({ message: "วิธีการแปรรูปไม่ถูกต้อง" });
   }
 
   try {
-    // ตรวจสต็อกคงเหลือ (ตามกติกา: นับเฉพาะตกเกรด & เก็บเกี่ยว แล้วลบด้วยที่แปรรูปไป)
-    const [harv] = await prisma.$queryRawUnsafe(
-      `SELECT COALESCE(SUM(amount),0) AS sum_amount
+    // ตรวจสต็อกแบบเดียวกับ /stock
+    const byTypeRows = await prisma.$queryRawUnsafe(
+      `SELECT TRIM(type) AS t, COALESCE(SUM(amount),0) AS sum_amount, COUNT(*) AS cnt
          FROM durian_fruit
         WHERE owner_id = ?
           AND grade = 'ตกเกรด'
-          AND type  = 'เก็บเกี่ยว'`,
-      ownerId
-    );
-    const [proc] = await prisma.$queryRawUnsafe(
-      `SELECT COALESCE(SUM(amount),0) AS sum_amount
-         FROM durian_fruit
-        WHERE owner_id = ?
-          AND type IN ('ทอด','แช่แข็ง','กวน','อบแห้ง','อื่นๆ')`,
+        GROUP BY TRIM(type)
+        ORDER BY t`,
       ownerId
     );
 
-    const stock = Math.max(
-      0,
-      Number(harv?.sum_amount ?? 0) - Number(proc?.sum_amount ?? 0)
-    );
+    const harvestedSum = byTypeRows
+      .filter(r => String(r.t || "").startsWith("เก็บเกี่ยว"))
+      .reduce((acc, r) => acc + Number(r.sum_amount || 0), 0);
+
+    const processedSum = byTypeRows
+      .filter(r => PROCESS_TYPES.includes(String(r.t || "")))
+      .reduce((acc, r) => acc + Number(r.sum_amount || 0), 0);
+
+    const stock = Math.max(0, harvestedSum - processedSum);
+
     if (parsed.data.amountKg > stock) {
-      return res
-        .status(400)
-        .json({ message: "ปริมาณเกินกว่าทุเรียนตกเกรดคงเหลือ" });
+      return res.status(400).json({
+        message: `ปริมาณเกินกว่าทุเรียนตกเกรดคงเหลือ (${stock} กก.)`,
+      });
     }
 
-    // หา fruit_id ถัดไป (F001, F002, ...)
+    // หา fruit_id ถัดไป
     const [maxRow] = await prisma.$queryRawUnsafe(
       `SELECT COALESCE(MAX(CAST(SUBSTRING(fruit_id, 2) AS UNSIGNED)), 0) AS maxnum
          FROM durian_fruit
@@ -124,47 +118,46 @@ router.post("/", async (req, res) => {
     );
     const nextId = `F${String(Number(maxRow?.maxnum ?? 0) + 1).padStart(3, "0")}`;
 
-    // INSERT แถวใหม่ลง DB (snake_case ตรงคอลัมน์จริง)
+    // INSERT (ตัดคอลัมน์ note ออก)
     await prisma.$executeRawUnsafe(
       `INSERT INTO durian_fruit
-         (fruit_id, tree_id, owner_id, broker_id, grade, amount, type, date, note)
-       VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), ?)`,
+         (fruit_id, tree_id, owner_id, broker_id, grade, amount, type, date)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
       nextId,
       "PROCESS",
       ownerId,
       null,
       "ตกเกรด",
       parsed.data.amountKg,
-      parsed.data.method,      // หนึ่งใน PROCESS_TYPES
-      parsed.data.note ?? ""
+      parsed.data.method
     );
 
-    // ส่งรายการที่เพิ่งสร้างกลับไป
+    // ดึงแถวที่เพิ่งสร้างกลับ (ไม่ select note)
     const [created] = await prisma.$queryRawUnsafe(
-      `SELECT fruit_id, tree_id, owner_id, broker_id, grade, amount, type, date, note
+      `SELECT fruit_id, tree_id, owner_id, broker_id, grade, amount, type, date
          FROM durian_fruit
         WHERE fruit_id = ?`,
       nextId
     );
 
-    return res.status(201).json({ data: created ?? { fruit_id: nextId } });
+    return res.status(201).json({ data: created });
   } catch (err) {
     console.error("❌ POST /processing error:", err);
     return res.status(500).json({ message: "Server error" });
   }
 });
 
-/* ─────────────────────────────────────────────
- * 3) รายการแปรรูปล่าสุด (Raw SQL)
- * ──────────────────────────────────────────── */
+// ─────────────────────────────────────────────
+// 3) รายการแปรรูปล่าสุด — ตัด note ออกจาก SELECT
+// ─────────────────────────────────────────────
 router.get("/recent", async (_req, res) => {
-  const ownerId = 1; // mock owner ชั่วคราว
+  const ownerId = 1; // mock owner
   try {
     const rows = await prisma.$queryRawUnsafe(
-      `SELECT fruit_id, tree_id, owner_id, broker_id, grade, amount, type, date, note
+      `SELECT fruit_id, tree_id, owner_id, broker_id, grade, amount, type, date
          FROM durian_fruit
         WHERE owner_id = ?
-          AND type IN ('ทอด','แช่แข็ง','กวน','อบแห้ง','อื่นๆ')
+          AND TRIM(type) IN ('ทอด','แช่แข็ง','กวน','อบแห้ง','อื่นๆ')
         ORDER BY date DESC
         LIMIT 50`,
       ownerId
