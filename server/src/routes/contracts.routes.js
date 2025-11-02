@@ -1,5 +1,6 @@
 // server/src/routes/contracts.routes.js
 import { Router } from "express";
+import { Prisma } from "@prisma/client";
 import prisma from "../config/prisma.js";
 
 const router = Router();
@@ -15,27 +16,32 @@ async function nextContractId(tx) {
   return `C${String(n).padStart(3, "0")}`;
 }
 
-// map payment term จากค่าฝั่ง UI เป็น enum ไทยใน DB
+// map payment term จากค่าฝั่ง UI -> enum code ของ Prisma (ซึ่ง map เป็นค่าไทยใน DB)
 function normalizePaymentTerm(termRaw) {
   const s = String(termRaw || "").trim().toLowerCase();
-  // รองรับทั้งไทย/อังกฤษ
-  if (["เงินสด", "cash"].includes(s)) return "เงินสด";
-  if (["โอนเงิน", "transfer", "banktransfer", "bank"].includes(s)) return "โอนเงิน";
-  if (["ผ่อนชำระ", "installment"].includes(s)) return "ผ่อนชำระ";
-  return "อื่นๆ";
+  // รองรับทั้งไทย/อังกฤษ -> map ไปเป็น enum code ของ Prisma
+  if (["เงินสด", "cash"].includes(s)) return "cash";
+  if (["โอนเงิน", "transfer", "banktransfer", "bank"].includes(s)) return "bankTransfer";
+  if (["ผ่อนชำระ", "installment"].includes(s)) return "installment";
+  return "other";
 }
 
 // ---- routes -------------------------------------------------
 
 // GET /contracts
-router.get("/", async (_req, res) => {
+router.get("/", async (req, res) => {
   try {
-    const rows = await prisma.$queryRawUnsafe(`
+    const brokerId = String(req.query?.broker_id || "").trim();
+    const whereClause = brokerId ? Prisma.sql`WHERE broker_id = ${brokerId}` : Prisma.sql``;
+    const rows = await prisma.$queryRaw(
+      Prisma.sql`
       SELECT contract_id, broker_id, owner_id, status, contract_date,
              qtt_estimate, offerprice, payment_term, note
         FROM contract
+        ${whereClause}
       ORDER BY contract_date DESC
-    `);
+    `
+    );
     res.json({ data: rows });
   } catch (err) {
     console.error("❌ GET /contracts error:", err);
@@ -57,11 +63,16 @@ router.post("/", async (req, res) => {
   const B = Number(prices.B);
   const C = Number(prices.C);
   const term = normalizePaymentTerm(req.body?.payment_term);
-  const note = String(req.body?.note || "");
+  const noteRaw = String(req.body?.note || "");
+  const note = noteRaw.trim() === "" ? null : noteRaw.trim();
 
   // log ไว้ช่วยดีบัก
   console.log("[POST /contracts] incoming:", {
-    brokerId, qty, prices: {A, B, C}, term, noteLen: note.length
+    brokerId,
+    qty,
+    prices: { A, B, C },
+    term,
+    noteLen: note?.length ?? 0,
   });
 
   // validate
@@ -80,33 +91,41 @@ router.post("/", async (req, res) => {
   try {
     const result = await prisma.$transaction(async (tx) => {
       const cid = await nextContractId(tx);
-      const offerpriceStr = `A=${A},B=${B},C=${C}`;
+      const offerpriceStr = `${A},${B},${C}`;
 
-      // insert contract
-      await tx.$executeRawUnsafe(
-        `INSERT INTO contract
-           (contract_id, broker_id, owner_id, status, contract_date,
-            qtt_estimate, offerprice, payment_term, note)
-         VALUES (?, ?, ?, 'รอการพิจารณา', CURDATE(),
-                 ?, ?, ?, ?)`,
-        cid, brokerId, ownerId,
-        qty, offerpriceStr, term, note
-      );
+      const created = await tx.contract.create({
+        data: {
+          contractId: cid,
+          brokerId,
+          ownerId,
+          status: "pending",
+          contractDate: new Date(),
+          qtyEstimate: new Prisma.Decimal(qty),
+          offerprice: offerpriceStr,
+          paymentTerm: term,
+          note,
+        },
+      });
 
-      // insert contract_price 3 แถว (คอลัมน์ "price" ตามสคีมาจริง)
-      const affected = await tx.$executeRawUnsafe(
-        `INSERT INTO contract_price (contract_id, grade, price)
-         VALUES (?, 'A', ?), (?, 'B', ?), (?, 'C', ?)`,
-        cid, A, cid, B, cid, C
-      );
+      await tx.contractPrice.createMany({
+        data: [
+          { contractId: cid, grade: "A", price: new Prisma.Decimal(A) },
+          { contractId: cid, grade: "B", price: new Prisma.Decimal(B) },
+          { contractId: cid, grade: "C", price: new Prisma.Decimal(C) },
+        ],
+      });
 
-      console.log("[POST /contracts] inserted:", { contract_id: cid, priceRows: affected });
-      return { contract_id: cid };
+      console.log("[POST /contracts] inserted:", { contract_id: cid });
+      return created;
     });
 
     return res.status(201).json({
       message: "สร้างข้อเสนอสำเร็จ",
-      contract_id: result.contract_id,
+      data: {
+        contract_id: result.contractId,
+        broker_id: result.brokerId,
+        owner_id: result.ownerId,
+      },
     });
   } catch (err) {
     console.error("❌ POST /contracts error:", err);
