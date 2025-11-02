@@ -75,3 +75,4 @@ export async function listProcessedFruits() {
   const res = await request("/fruits?type=แปรรูป");
   return res?.data ?? [];
 }
+
