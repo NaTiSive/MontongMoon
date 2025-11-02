@@ -359,15 +359,16 @@ router.post("/requests", authenticate(), requireRole("broker"), async (req, res)
   try {
     const created = await prisma.$transaction(async (tx) => {
       // สร้างคำขอ
-      const [requestRow] = await tx.$queryRawUnsafe(
+      const [{ id: reqId }] = await tx.$queryRawUnsafe(`SELECT UUID() AS id`);
+      await tx.$executeRawUnsafe(
         `INSERT INTO export_request (id, broker_id, grade_a, grade_b, grade_c, status, created_at, reserved_fruits)
-         VALUES (UUID(), ?, ?, ?, ?, 'pending', NOW(), NULL) RETURNING *`,
-        String(req.user.id), grades.A, grades.B, grades.C
+         VALUES (?, ?, ?, ?, ?, 'pending', NOW(), NULL)`,
+       reqId, String(req.user.id), grades.A, grades.B, grades.C
       );
-      const request = requestRow || (await tx.$queryRawUnsafe(
-        `SELECT * FROM export_request WHERE broker_id = ? ORDER BY created_at DESC LIMIT 1`,
-        String(req.user.id)
-      ))[0]; // fallback สำหรับ MySQL ที่ไม่มี RETURNING
+      const [request] = await tx.$queryRawUnsafe(
+        `SELECT * FROM export_request WHERE id = ?`,
+        reqId
+      );
 
       // จองผลผลิต
       const reserved = await reserveExportFruits(tx, String(req.user.id), grades);
