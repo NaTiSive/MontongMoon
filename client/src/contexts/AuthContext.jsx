@@ -1,21 +1,42 @@
+// src/contexts/AuthContext.jsx
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { getBrokerApproval } from "../api/contracts";
-import { fetchCurrentUser, login as apiLogin, logout as apiLogout } from "../api/auth";
-import { getStoredAuth, setStoredAuth } from "../api/http";
+import {
+  fetchCurrentUser,
+  login as apiLogin,
+  logout as apiLogout,
+} from "../api/auth";
+import {
+  getStoredAuth,
+  setStoredAuth,
+  clearStoredAuth,
+} from "../api/http";
 
 const AuthCtx = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true); // ✅ รอโหลดข้อมูลก่อน
+  const [loading, setLoading] = useState(true);
 
+  // 🧠 โหลด token จาก localStorage ตอนเริ่มต้น
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const current = await fetchCurrentUser();
-        if (!alive) return;
-        setUser(current);
+        const auth = getStoredAuth();
+        if (auth?.user) {
+          setUser(auth.user);
+        } else {
+          const current = await fetchCurrentUser();
+          if (!alive) return;
+          if (current) {
+            setUser(current);
+            setStoredAuth({ user: current });
+          }
+        }
+      } catch {
+        // ถ้า token หมดอายุ ล้างทิ้ง
+        clearStoredAuth();
       } finally {
         if (alive) setLoading(false);
       }
@@ -25,28 +46,35 @@ export function AuthProvider({ children }) {
     };
   }, []);
 
-  // ✅ login & save user/token
+  // ✅ login: บันทึก token + user ลง localStorage
   const login = async (credentials) => {
     const data = await apiLogin(credentials);
-    setUser(data.user);
-    return data.user;
+    if (data?.token && data?.user) {
+      setStoredAuth({ user: data.user, token: data.token });
+      setUser(data.user);
+    }
+    return data?.user;
   };
 
-  // ✅ update user profile
+  // ✅ logout: ล้างทุกอย่าง
+  const logout = () => {
+    setUser(null);
+    clearStoredAuth();
+    apiLogout();
+  };
+
+  // ✅ update user profile (เช่น เปลี่ยนชื่อ/รูป)
   const updateUser = (newData) => {
     setUser((prev) => {
       if (!prev) return prev;
       const updated = { ...prev, ...newData };
       const auth = getStoredAuth();
-      if (auth) {
-        setStoredAuth({ ...auth, user: updated });
-      }
+      if (auth) setStoredAuth({ ...auth, user: updated });
       return updated;
     });
   };
 
-
-  // ✅ auto-sync broker approvalStatus (เมื่อโฟกัสหน้าต่าง หรือเป็นระยะ)
+  // ✅ auto-sync broker approvalStatus
   useEffect(() => {
     if (user?.role !== "broker" || user?.broker_id == null) return;
     const sync = () => {
@@ -59,37 +87,24 @@ export function AuthProvider({ children }) {
         } catch {}
       })();
     };
-    // sync เมื่อกลับมาโฟกัส + interval สั้น ๆ
     window.addEventListener("focus", sync);
     const t = setInterval(sync, 2000);
-    sync(); // เรียกทันทีรอบหนึ่ง
+    sync();
     return () => {
       window.removeEventListener("focus", sync);
       clearInterval(t);
     };
   }, [user?.role, user?.broker_id, user?.approvalStatus]);
 
-  // ✅ update approval status (owner→broker)
-  const updateApproval = (status) => {
-    setUser((prev) => {
-      const updated = { ...prev, approvalStatus: status };
-      const auth = getStoredAuth();
-      if (auth) {
-        setStoredAuth({ ...auth, user: updated });
-      }
-      return updated;
-    });
-  };
-
-  // ✅ logout
-  const logout = () => {
-    setUser(null);
-    apiLogout();
-  };
-
   return (
     <AuthCtx.Provider
-      value={{ user, loading, login, logout, updateUser, updateApproval }}
+      value={{
+        user,
+        loading,
+        login,
+        logout,
+        updateUser,
+      }}
     >
       {children}
     </AuthCtx.Provider>

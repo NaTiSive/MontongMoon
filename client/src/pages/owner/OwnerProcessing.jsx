@@ -55,9 +55,8 @@ export default function OwnerProcessing() {
 
   // ฟอร์ม UC11
   const [form, setForm] = useState({
-    method: "", // วิธีแปรรูป (ทอด/แช่แข็ง/กวน/อบแห้ง/อื่นๆ)
-    amountKg: "", // ปริมาณที่จะใช้แปรรูป (kg)
-    note: "",
+    method: "",
+    amountKg: "",
   });
 
   const onChange = (k) => (e) =>
@@ -86,7 +85,6 @@ export default function OwnerProcessing() {
     const method = (form.method || "").trim();
     const amount = Number(form.amountKg);
 
-    // ตรวจสอบตาม UC11 ข้อ 7
     if (!method) return alert("กรุณาเลือกวิธีการแปรรูป");
     if (!amount || Number.isNaN(amount))
       return alert("กรุณาระบุปริมาณให้ถูกต้อง");
@@ -95,16 +93,10 @@ export default function OwnerProcessing() {
       return alert("ปริมาณเกินกว่าทุเรียนตกเกรดคงเหลือ");
 
     try {
-      await createProcessingRecord({
-        method,
-        amountKg: amount,
-        note: form.note?.trim() || "",
-      });
-      setForm({ method: "", amountKg: "", note: "" });
+      await createProcessingRecord({ method, amountKg: amount });
+      setForm({ method: "", amountKg: "" });
       await reloadData();
       alert("บันทึกการแปรรูปสำเร็จ");
-      // กลับ Dashboard ตาม UC11 ข้อ 15 (ถ้ายังไม่ต้อง redirect ให้คอมเมนต์บรรทัดล่างไว้ได้)
-      // navigate("/owner/dashboard");
     } catch (e2) {
       alert(e2?.message || "บันทึกไม่สำเร็จ");
     }
@@ -187,22 +179,13 @@ export default function OwnerProcessing() {
                   />
                 </div>
 
-                <div className="md:col-span-2">
-                  <InputField
-                    label="หมายเหตุ"
-                    value={form.note}
-                    onChange={onChange("note")}
-                    placeholder="รายละเอียดเพิ่มเติม (ถ้ามี)"
-                  />
-                </div>
-
                 <div className="md:col-span-2 flex justify-end">
                   <PrimaryButton title="ยืนยันการแปรรูป" type="submit" />
                 </div>
               </form>
             </Card>
 
-            {/* บันทึกล่าสุด (ตัวอย่างตารางสั้น ๆ เพื่อความโปร่งใส) */}
+            {/* ตารางรายการแปรรูปล่าสุด */}
             <Card>
               <div className="text-sm text-slate-600 mb-2">
                 รายการแปรรูปล่าสุด
@@ -219,7 +202,6 @@ export default function OwnerProcessing() {
                         <th className="py-2 px-3">วันที่</th>
                         <th className="py-2 px-3">วิธี</th>
                         <th className="py-2 px-3">ปริมาณ (กก.)</th>
-                        <th className="py-2 px-3">หมายเหตุ</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -249,7 +231,6 @@ export default function OwnerProcessing() {
                             <td className="py-2 px-3">
                               {Number(r.weight_kg || 0).toLocaleString()}
                             </td>
-                            <td className="py-2 px-3">{r.note || "-"}</td>
                           </tr>
                         ))}
                     </tbody>
