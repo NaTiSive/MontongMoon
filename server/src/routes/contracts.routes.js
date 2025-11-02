@@ -174,4 +174,40 @@ router.post("/:id/reject", async (req, res) => {
   }
 });
 
+// GET /contracts/deadline
+router.get("/deadline", async (_req, res) => {
+  try {
+    const [row] = await prisma.$queryRawUnsafe(`
+      SELECT current_deadline_date
+      FROM owner
+      WHERE owner_id = 1
+      LIMIT 1
+    `);
+    res.json(row || { current_deadline_date: null });
+  } catch (err) {
+    console.error("❌ GET /contracts/deadline error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// PUT /contracts/deadline
+router.put("/deadline", async (req, res) => {
+  const deadline = req.body?.deadline;
+  if (!deadline) return res.status(400).json({ message: "Missing deadline" });
+
+  try {
+    await prisma.$executeRawUnsafe(
+      `UPDATE owner
+       SET current_deadline_date = ?, last_modified_deadline_date = CURDATE()
+       WHERE owner_id = 1`,
+      deadline
+    );
+    res.json({ current_deadline_date: deadline });
+  } catch (err) {
+    console.error("❌ PUT /contracts/deadline error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+
 export default router;
