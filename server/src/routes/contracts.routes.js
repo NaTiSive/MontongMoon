@@ -1,220 +1,110 @@
+// server/src/routes/contracts.routes.js
 import { Router } from "express";
-import { z } from "zod";
 import prisma from "../config/prisma.js";
-import { authenticate, requireRole } from "../middleware/auth.js";
-import { mapContract } from "../utils/formatters.js";
-import { getBrokerApprovalStatus } from "../utils/brokers.js";
 
 const router = Router();
 
-router.get("/deadline", authenticate(), async (req, res) => {
-  const owner = await prisma.owner.findUnique({ where: { ownerId: 1 } });
-  if (!owner || !owner.currentDeadlineDate) {
-    return res.status(404).json({ message: "ยังไม่ตั้งค่ากำหนดส่ง" });
+/**
+ * ดึงรายการสัญญาทั้งหมด
+ */
+router.get("/", async (_req, res) => {
+  try {
+    const rows = await prisma.$queryRawUnsafe(`
+      SELECT contract_id, broker_id, owner_id, status, contract_date,
+             qtt_estimate, offerprice, payment_term, note
+        FROM contract
+      ORDER BY contract_date DESC
+    `);
+    res.json({ data: rows });
+  } catch (err) {
+    console.error("❌ GET /contracts error:", err);
+    res.status(500).json({ message: "Server error" });
   }
-  res.json({ current_deadline_date: owner.currentDeadlineDate.toISOString() });
 });
 
-const deadlineSchema = z.object({ deadline: z.string().datetime() });
+/**
+ * ยอมรับสัญญา
+ * - แก้สถานะของ owner นั้น ๆ ให้เหลือ "ยอมรับ" ได้แค่ 1 ฉบับ
+ * - แก้สถานะสัญญาอื่นกลับไป "รอการพิจารณา"
+ */
+router.post("/:id/approve", async (req, res) => {
+  const id = req.params.id;
 
-router.put("/deadline", authenticate(), requireRole("owner"), async (req, res) => {
-  const parsed = deadlineSchema.safeParse({
-    deadline: req.body.deadline || req.body.current_deadline_date,
-  });
-  if (!parsed.success) {
-    return res.status(400).json({ message: "รูปแบบวันที่ไม่ถูกต้อง", details: parsed.error.flatten() });
-  }
-  const dt = new Date(parsed.data.deadline);
-  const updated = await prisma.owner.update({
-    where: { ownerId: 1 },
-    data: {
-      currentDeadlineDate: dt,
-      lastModifiedDeadlineDate: new Date(),
-    },
-  });
-  res.json({ current_deadline_date: updated.currentDeadlineDate.toISOString() });
-});
+  try {
+    // ดึงข้อมูลสัญญาที่จะอนุมัติ
+    const [c] = await prisma.$queryRawUnsafe(
+      `SELECT contract_id, owner_id, broker_id, status
+         FROM contract
+        WHERE contract_id = ?`,
+      id
+    );
 
-const createSchema = z.object({
-  qtt_estimate: z.number().positive(),
-  offerprice_by_grade: z.object({
-    A: z.number().positive(),
-    B: z.number().positive(),
-    C: z.number().positive(),
-  }),
-  payment_term: z.enum(["เงินสด", "โอนเงิน", "ผ่อนชำระ", "อื่นๆ"]).optional(),
-  note: z.string().optional(),
-});
+    if (!c) {
+      return res.status(404).json({ message: "ไม่พบสัญญานี้" });
+    }
 
-const PAYMENT_TERM_INPUT = {
-  "เงินสด": "cash",
-  "โอนเงิน": "bankTransfer",
-  "ผ่อนชำระ": "installment",
-  "อื่นๆ": "other",
-};
+    const ownerId = Number(c.owner_id); // ✅ convert ให้แน่ใจว่าเป็นตัวเลข
+    const brokerId = c.broker_id;
 
-router.post("/", authenticate(), requireRole("broker"), async (req, res) => {
-  const parsed = createSchema.safeParse({
-    qtt_estimate: Number(req.body.qtt_estimate),
-    offerprice_by_grade: {
-      A: Number(req.body.offerprice_by_grade?.A),
-      B: Number(req.body.offerprice_by_grade?.B),
-      C: Number(req.body.offerprice_by_grade?.C),
-    },
-    payment_term: req.body.payment_term,
-    note: req.body.note,
-  });
-  if (!parsed.success) {
-    return res.status(400).json({ message: "ข้อมูลไม่ถูกต้อง", details: parsed.error.flatten() });
-  }
+    await prisma.$transaction(async (tx) => {
+      // reset สัญญาทั้งหมดของ owner นี้ให้ "รอการพิจารณา"
+      await tx.$executeRawUnsafe(
+        `UPDATE contract
+            SET status = 'รอการพิจารณา'
+          WHERE owner_id = ?`,
+        ownerId
+      );
 
-  const owner = await prisma.owner.findUnique({ where: { ownerId: 1 } });
-  if (!owner) return res.status(500).json({ message: "ยังไม่ได้สร้างบัญชีเจ้าของสวน" });
+      // set สัญญาที่เลือกเป็น "ยอมรับ"
+      await tx.$executeRawUnsafe(
+        `UPDATE contract
+            SET status = 'ยอมรับ'
+          WHERE contract_id = ?`,
+        id
+      );
 
-  const contractId = await generateContractId();
-  const offerprice = `${parsed.data.offerprice_by_grade.A},${parsed.data.offerprice_by_grade.B},${parsed.data.offerprice_by_grade.C}`;
-
-  const contract = await prisma.contract.create({
-    data: {
-      contractId,
-      brokerId: req.user.id,
-      ownerId: owner.ownerId,
-      qtyEstimate: parsed.data.qtt_estimate,
-      paymentTerm: parsed.data.payment_term
-        ? PAYMENT_TERM_INPUT[parsed.data.payment_term]
-        : "bankTransfer",
-      note: parsed.data.note || "",
-      status: "pending",
-      contractDate: new Date(),
-      offerprice,
-      prices: {
-        create: [
-          { grade: "A", price: parsed.data.offerprice_by_grade.A },
-          { grade: "B", price: parsed.data.offerprice_by_grade.B },
-          { grade: "C", price: parsed.data.offerprice_by_grade.C },
-        ],
-      },
-    },
-    include: { prices: true },
-  });
-
-  res.status(201).json({ data: mapContract(contract) });
-});
-
-router.get("/", authenticate(), async (req, res) => {
-  const { broker_id: brokerIdParam } = req.query;
-  const where = {};
-  if (req.user.role === "broker") {
-    where.brokerId = req.user.id;
-  }
-  if (brokerIdParam) {
-    where.brokerId = String(brokerIdParam);
-  }
-
-  const contracts = await prisma.contract.findMany({
-    orderBy: { contractDate: "desc" },
-    where,
-    include: { prices: true },
-  });
-  res.json({ data: contracts.map(mapContract) });
-});
-
-router.post("/:id/approve", authenticate(), requireRole("owner"), async (req, res) => {
-  const { id } = req.params;
-
-  const target = await prisma.contract.findUnique({
-    where: { contractId: id },
-    include: { prices: true },
-  });
-  if (!target) return res.status(404).json({ message: "ไม่พบข้อเสนอ" });
-
-  await prisma.$transaction(async (tx) => {
-    // 1) reset accepted เดิมของ owner คนนี้
-    await tx.contract.updateMany({
-      where: { ownerId: target.ownerId, status: "accepted", contractId: { not: id } },
-      data: { status: "pending" },
+      // update broker_id ใน durian_tree และ durian_fruit
+      await tx.$executeRawUnsafe(
+        `UPDATE durian_tree
+            SET broker_id = ?
+          WHERE owner_id = ?`,
+        brokerId,
+        ownerId
+      );
+      await tx.$executeRawUnsafe(
+        `UPDATE durian_fruit
+            SET broker_id = ?
+          WHERE owner_id = ?`,
+        brokerId,
+        ownerId
+      );
     });
 
-    // 2) ตั้งสัญญาปัจจุบันเป็น accepted
-    await tx.contract.update({
-      where: { contractId: id },
-      data: { status: "accepted" },
-    });
-
-    // 3) อัปเดต broker ของ "ทุกต้น" ของ owner
-    await tx.durianTree.updateMany({
-      where: { ownerId: target.ownerId },
-      data: { brokerId: target.brokerId },
-    });
-
-    // 4) อัปเดต broker ของ "ผลผลิตทั้งหมด" ของ owner (ไม่สนใจวันที่/ค่าเดิม)
-    //    จุดนี้คือสิ่งที่ทำให้เห็นผลแน่นอนว่าทุกเรคคอร์ดถูกย้ายไปหา broker ใหม่
-    await tx.durianFruit.updateMany({
-      where: { ownerId: target.ownerId },
-      data: { brokerId: target.brokerId },
-    });
-
-    // (ถ้าต้องการให้เฉพาะผลผลิตอนาคต ให้ใช้เงื่อนไข date >= target.contractDate แทนบรรทัดบน)
-    // await tx.durianFruit.updateMany({
-    //   where: { ownerId: target.ownerId, date: { gte: target.contractDate } },
-    //   data: { brokerId: target.brokerId },
-    // });
-  });
-
-  const updated = await prisma.contract.findUnique({
-    where: { contractId: id },
-    include: { prices: true },
-  });
-  res.json({ data: mapContract(updated) });
-});
-
-router.post("/:id/reject", authenticate(), requireRole("owner"), async (req, res) => {
-  const { id } = req.params;
-  const contract = await prisma.contract.update({
-    where: { contractId: id },
-    data: { status: "rejected" },
-    include: { prices: true },
-  });
-  res.json({ data: mapContract(contract) });
-});
-
-router.get("/approvals/:brokerId", authenticate(), async (req, res) => {
-  const brokerId = String(req.params.brokerId);
-  const broker = await prisma.broker.findUnique({ where: { brokerId } });
-  if (!broker) return res.status(404).json({ message: "ไม่พบบัญชีผู้รับเหมา" });
-  const status = await getBrokerApprovalStatus(brokerId);
-  res.json({ broker_id: brokerId, approvalStatus: status });
-});
-
-router.get("/has-active-offer", authenticate(), async (req, res) => {
-  const { broker_id: brokerIdParam } = req.query;
-  const filters = { status: "accepted" };
-
-  if (brokerIdParam) {
-    filters.brokerId = String(brokerIdParam);
-  } else if (req.user.role === "broker") {
-    filters.brokerId = req.user.id;
+    res.json({ message: "อนุมัติสัญญาสำเร็จ" });
+  } catch (err) {
+    console.error("❌ approve contract error:", err);
+    res.status(500).json({ message: "Server error" });
   }
-
-  const contract = await prisma.contract.findFirst({
-    where: filters,
-    orderBy: { contractDate: "desc" },
-    include: { prices: true },
-  });
-
-  res.json({ hasActive: Boolean(contract), contract: mapContract(contract) });
 });
 
-async function generateContractId() {
-  const last = await prisma.contract.findMany({
-    orderBy: { contractId: "desc" },
-    take: 1,
-  });
-  if (!last.length) return "C001";
-  const current = last[0].contractId;
-  const numeric = parseInt(current.replace(/^C/, ""), 10) || 0;
-  const next = numeric + 1;
-  return `C${next.toString().padStart(3, "0")}`;
-}
+/**
+ * ปฏิเสธข้อเสนอ
+ */
+router.post("/:id/reject", async (req, res) => {
+  const id = req.params.id;
+  try {
+    const affected = await prisma.$executeRawUnsafe(
+      `UPDATE contract SET status = 'ปฏิเสธ' WHERE contract_id = ?`,
+      id
+    );
+    if (affected === 0) {
+      return res.status(404).json({ message: "ไม่พบสัญญา" });
+    }
+    res.json({ message: "ปฏิเสธข้อเสนอเรียบร้อย" });
+  } catch (err) {
+    console.error("❌ reject contract error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
 
 export default router;
