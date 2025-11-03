@@ -137,7 +137,8 @@ async function loadReservedFruits(tx, ids) {
 }
 async function attachReservedFruits(request, tx = prisma) {
   if (!request) return null;
-  const ids = parseReservedFruitIds(request.reservedFruits);
+  // ✅ FIX: ใช้ reserved_fruits (snake_case) ให้ถูกคอลัมน์
+  const ids = parseReservedFruitIds(request.reserved_fruits);
   if (!ids.length) return { ...request, fruits: [] };
   const fruits = await loadReservedFruits(tx, ids);
   return { ...request, fruits };
@@ -358,7 +359,7 @@ router.post("/requests", authenticate(), requireRole("broker"), async (req, res)
 
   try {
     const created = await prisma.$transaction(async (tx) => {
-      // สร้างคำขอ
+      // สร้างคำขอ (MariaDB ไม่มี RETURNING)
       const [{ id: reqId }] = await tx.$queryRawUnsafe(`SELECT UUID() AS id`);
       await tx.$executeRawUnsafe(
         `INSERT INTO export_request (id, broker_id, grade_a, grade_b, grade_c, status, created_at, reserved_fruits)
@@ -387,7 +388,24 @@ router.post("/requests", authenticate(), requireRole("broker"), async (req, res)
       return withFruits;
     });
 
-    res.status(201).json({ data: mapExportRequest(created) });
+    // ✅ ส่งฟิลด์ที่ FE ใช้แน่ ๆ เพื่อกัน Invalid Date / ค่าศูนย์
+    const mapped = mapExportRequest(created) || {};
+    res.status(201).json({
+      data: {
+        ...mapped,
+        gradeA: Number(created.grade_a ?? mapped.gradeA ?? 0),
+        gradeB: Number(created.grade_b ?? mapped.gradeB ?? 0),
+        gradeC: Number(created.grade_c ?? mapped.gradeC ?? 0),
+        total:
+          Number(created.grade_a ?? mapped.gradeA ?? 0) +
+          Number(created.grade_b ?? mapped.gradeB ?? 0) +
+          Number(created.grade_c ?? mapped.gradeC ?? 0),
+        createdAt: created.created_at
+          ? new Date(created.created_at).toISOString()
+          : (mapped.createdAt || null),
+        fruits: created.fruits || [],
+      },
+    });
   } catch (err) {
     console.error("❌ POST /export/requests error:", err);
     res.status(400).json({ message: err.message || "ไม่สามารถสร้างคำขอได้" });
@@ -413,14 +431,39 @@ router.get("/requests", authenticate(), async (req, res) => {
 
   const rows = await prisma.$queryRawUnsafe(sql, ...params);
   const withFruits = await Promise.all(rows.map((r) => attachReservedFruits(r)));
-  res.json({ data: withFruits.map(mapExportRequest) });
+
+  // ✅ map เป็นรูปแบบที่ FE ใช้ + กัน Invalid Date
+  const data = withFruits.map((r) => {
+    const base = mapExportRequest(r) || {};
+    const totals = sumGradesFromFruits(r.fruits || []);
+    const a = Number(r.grade_a ?? base.gradeA ?? totals.A ?? 0);
+    const b = Number(r.grade_b ?? base.gradeB ?? totals.B ?? 0);
+    const c = Number(r.grade_c ?? base.gradeC ?? totals.C ?? 0);
+    return {
+      ...base,
+      id: r.id,
+      brokerId: r.broker_id ?? base.brokerId,
+      gradeA: a,
+      gradeB: b,
+      gradeC: c,
+      total: a + b + c,
+      createdAt: r.created_at
+        ? new Date(r.created_at).toISOString()
+        : (base.createdAt || null),
+      fruits: (r.fruits || []).map((f) => ({
+        fruit_id: f.fruit_id, grade: f.grade, amount: Number(f.amount || 0), type: f.type, date: f.date
+      })),
+    };
+  });
+
+  res.json({ data });
 });
 
 // POST /export/requests/:id/withdraw  (broker ยกเลิกคำขอที่ยัง pending)
 router.post("/requests/:id/withdraw", authenticate(), requireRole("broker"), async (req, res) => {
   const { id } = req.params;
   const request = await getRequestWithFruits(id);
-  if (!request || String(request.brokerId) !== String(req.user.id)) {
+  if (!request || String(request.brokerId || request.broker_id) !== String(req.user.id)) {
     return res.status(404).json({ message: "ไม่พบคำขอ" });
   }
   if (request.status !== "pending") {
@@ -438,7 +481,27 @@ router.post("/requests/:id/withdraw", authenticate(), requireRole("broker"), asy
     return cleared;
   });
 
-  res.json({ data: mapExportRequest(updated) });
+  const totals = sumGradesFromFruits(updated.fruits || []);
+  const mapped = mapExportRequest(updated) || {};
+  res.json({
+    data: {
+      ...mapped,
+      id: updated.id,
+      brokerId: updated.broker_id ?? mapped.brokerId,
+      status: updated.status,
+      gradeA: Number(updated.grade_a ?? mapped.gradeA ?? totals.A ?? 0),
+      gradeB: Number(updated.grade_b ?? mapped.gradeB ?? totals.B ?? 0),
+      gradeC: Number(updated.grade_c ?? mapped.gradeC ?? totals.C ?? 0),
+      total:
+        Number(updated.grade_a ?? mapped.gradeA ?? totals.A ?? 0) +
+        Number(updated.grade_b ?? mapped.gradeB ?? totals.B ?? 0) +
+        Number(updated.grade_c ?? mapped.gradeC ?? totals.C ?? 0),
+      createdAt: updated.created_at
+        ? new Date(updated.created_at).toISOString()
+        : (mapped.createdAt || null),
+      fruits: updated.fruits || [],
+    },
+  });
 });
 
 // POST /export/requests/:id/approve  (owner อนุมัติ)
@@ -477,7 +540,7 @@ router.post("/requests/:id/approve", authenticate(), requireRole("owner"), async
       }
 
       // ลงบัญชีรายรับตามราคาในสัญญา
-      await bookRevenue(tx, String(current.brokerId), contract, totals, id);
+      await bookRevenue(tx, String(current.brokerId || current.broker_id), contract, totals, id);
 
       // อนุมัติคำขอ
       await tx.$executeRawUnsafe(
@@ -495,7 +558,26 @@ router.post("/requests/:id/approve", authenticate(), requireRole("owner"), async
       return updated;
     });
 
-    res.json({ data: mapExportRequest(result) });
+    const mapped = mapExportRequest(result) || {};
+    res.json({
+      data: {
+        ...mapped,
+        id: result.id,
+        brokerId: result.broker_id ?? mapped.brokerId,
+        status: result.status,
+        gradeA: Number(result.grade_a ?? mapped.gradeA ?? 0),
+        gradeB: Number(result.grade_b ?? mapped.gradeB ?? 0),
+        gradeC: Number(result.grade_c ?? mapped.gradeC ?? 0),
+        total:
+          Number(result.grade_a ?? mapped.gradeA ?? 0) +
+          Number(result.grade_b ?? mapped.gradeB ?? 0) +
+          Number(result.grade_c ?? mapped.gradeC ?? 0),
+        createdAt: result.created_at
+          ? new Date(result.created_at).toISOString()
+          : (mapped.createdAt || null),
+        fruits: result.fruits || [],
+      },
+    });
   } catch (err) {
     console.error("❌ POST /export/requests/:id/approve error:", err);
     res.status(400).json({ message: err.message || "ไม่สามารถยืนยันคำขอได้" });
@@ -522,7 +604,26 @@ router.post("/requests/:id/reject", authenticate(), requireRole("owner"), async 
     return cleared;
   });
 
-  res.json({ data: mapExportRequest(updated) });
+  const mapped = mapExportRequest(updated) || {};
+  res.json({
+    data: {
+      ...mapped,
+      id: updated.id,
+      brokerId: updated.broker_id ?? mapped.brokerId,
+      status: updated.status,
+      gradeA: Number(updated.grade_a ?? mapped.gradeA ?? 0),
+      gradeB: Number(updated.grade_b ?? mapped.gradeB ?? 0),
+      gradeC: Number(updated.grade_c ?? mapped.gradeC ?? 0),
+      total:
+        Number(updated.grade_a ?? mapped.gradeA ?? 0) +
+        Number(updated.grade_b ?? mapped.gradeB ?? 0) +
+        Number(updated.grade_c ?? mapped.gradeC ?? 0),
+      createdAt: updated.created_at
+        ? new Date(updated.created_at).toISOString()
+        : (mapped.createdAt || null),
+      fruits: updated.fruits || [],
+    },
+  });
 });
 
 export default router;
