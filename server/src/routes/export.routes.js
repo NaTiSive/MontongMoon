@@ -1,294 +1,477 @@
+// server/src/routes/export.routes.js
 import { Router } from "express";
-import { z } from "zod";
-import { FruitFlowType } from "@prisma/client";
 import prisma from "../config/prisma.js";
 import { authenticate, requireRole } from "../middleware/auth.js";
 import { mapExportRequest, mapFruit, normalizeFruitFlowCode } from "../utils/formatters.js";
-import { computeNetStockByGrade } from "../utils/fruits.js";
 
 const router = Router();
-const EXPORT_GRADES = ["A", "B", "C"];
-const EPSILON = 1e-6;
 
+// ค่าที่ใช้ใน DB (ภาษาไทย)
+const TYPE_HARVEST_PREFIX = "เก็บเกี่ยว";
+const TYPE_EXPORT = "ขนส่งออก";
+const GRADES = ["A", "B", "C"];
+const EPSILON = 1e-9;
+
+/* ---------- Helpers: next ids ---------- */
+async function nextFruitId(tx) {
+  const [row] = await tx.$queryRawUnsafe(
+    `SELECT COALESCE(MAX(CAST(SUBSTRING(fruit_id, 2) AS UNSIGNED)), 0) AS maxnum
+       FROM durian_fruit
+      WHERE fruit_id REGEXP '^F[0-9]+'`
+  );
+  const n = Number(row?.maxnum ?? 0) + 1;
+  return `F${String(n).padStart(3, "0")}`;
+}
+
+async function nextAccountId(tx) {
+  const [row] = await tx.$queryRawUnsafe(
+    `SELECT COALESCE(MAX(CAST(SUBSTRING(account_id, 3) AS UNSIGNED)), 0) AS maxnum
+       FROM account
+      WHERE account_id REGEXP '^AC[0-9]+'`
+  );
+  const n = Number(row?.maxnum ?? 0) + 1;
+  return `AC${String(n).padStart(3, "0")}`;
+}
+
+/* ---------- Helpers: stock / price ---------- */
+// สต็อกพร้อมส่งออกของ broker: (เก็บเกี่ยว*) - (ขนส่งออก)
 async function getStockByGrade(brokerId) {
-  // เดิมล็อก ownerId: 1 -> ทำให้สต็อก broker เป็นศูนย์เสมอ
-  // ใช้แค่ brokerId; owner ไม่ต้องกรอง
-  const { by_grade } = await computeNetStockByGrade({ brokerId, ownerId: null });
-  const grades = { A: 0, B: 0, C: 0 };
-  for (const grade of EXPORT_GRADES) {
-    grades[grade] = Math.max(0, Number(by_grade?.[grade] ?? 0));
+  const result = { A: 0, B: 0, C: 0 };
+  if (!brokerId) return result;
+
+  const harvested = await prisma.$queryRawUnsafe(
+    `SELECT grade, COALESCE(SUM(amount),0) AS sum_amount
+       FROM durian_fruit
+      WHERE broker_id = ?
+        AND grade IN ('A','B','C')
+        AND TRIM(type) LIKE '${TYPE_HARVEST_PREFIX}%'
+      GROUP BY grade`,
+    brokerId
+  );
+
+  const exported = await prisma.$queryRawUnsafe(
+    `SELECT grade, COALESCE(SUM(amount),0) AS sum_amount
+       FROM durian_fruit
+      WHERE broker_id = ?
+        AND grade IN ('A','B','C')
+        AND TRIM(type) = '${TYPE_EXPORT}'
+      GROUP BY grade`,
+    brokerId
+  );
+
+  const h = Object.fromEntries(harvested.map(r => [r.grade, Number(r.sum_amount || 0)]));
+  const e = Object.fromEntries(exported.map(r => [r.grade, Number(r.sum_amount || 0)]));
+
+  for (const g of GRADES) {
+    result[g] = Math.max(0, (h[g] || 0) - (e[g] || 0));
   }
-  return grades;
+  return result;
 }
 
-function sumGradesFromFruits(fruits = []) {
-  const totals = { A: 0, B: 0, C: 0 };
-  for (const fruit of fruits) {
-    if (!fruit || normalizeFruitFlowCode(fruit.type) !== "export") continue;
-    if (!EXPORT_GRADES.includes(fruit.grade)) continue;
-    totals[fruit.grade] += Number(fruit.amount ?? 0);
+// อ่านราคา/กก. จากสัญญา "ยอมรับ" ล่าสุดของ broker; ถ้าไม่มีให้ใช้สัญญาล่าสุดของ broker
+async function getPriceMap(brokerId) {
+  const map = { A: 0, B: 0, C: 0 };
+  if (!brokerId) return map;
+
+  let useId = null;
+  const [acc] = await prisma.$queryRawUnsafe(
+    `SELECT contract_id
+       FROM contract
+      WHERE broker_id = ?
+        AND status = 'ยอมรับ'
+      ORDER BY contract_date DESC
+      LIMIT 1`,
+    brokerId
+  );
+  if (acc?.contract_id) useId = acc.contract_id;
+
+  if (!useId) {
+    const [latest] = await prisma.$queryRawUnsafe(
+      `SELECT contract_id
+         FROM contract
+        WHERE broker_id = ?
+        ORDER BY contract_date DESC
+        LIMIT 1`,
+      brokerId
+    );
+    useId = latest?.contract_id || null;
   }
-  return totals;
+  if (!useId) return map;
+
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT grade, price
+       FROM contract_price
+      WHERE contract_id = ?`,
+    useId
+  );
+  for (const r of rows) {
+    if (GRADES.includes(r.grade)) map[r.grade] = Number(r.price || 0);
+  }
+  return map;
 }
 
+/* ---------- Helpers: export requests ---------- */
 function parseReservedFruitIds(value) {
   if (!value) return [];
   try {
     const parsed = JSON.parse(value);
-    if (Array.isArray(parsed)) {
-      return parsed.map((id) => String(id)).filter(Boolean);
-    }
-    return [];
-  } catch (err) {
+    return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : [];
+  } catch {
     return [];
   }
 }
-
 function serializeReservedFruitIds(ids) {
-  if (!ids || !ids.length) return null;
-  const unique = Array.from(new Set(ids.map((id) => String(id)).filter(Boolean)));
-  return unique.length ? JSON.stringify(unique) : null;
+  const uniq = Array.from(new Set((ids || []).map(String).filter(Boolean)));
+  return uniq.length ? JSON.stringify(uniq) : null;
 }
-
 async function loadReservedFruits(tx, ids) {
   if (!ids.length) return [];
-  const records = await tx.durianFruit.findMany({
-    where: { fruitId: { in: ids } },
-  });
-  const lookup = new Map(records.map((record) => [record.fruitId, record]));
-  return ids.map((id) => lookup.get(id)).filter(Boolean);
+  const records = await tx.$queryRawUnsafe(
+    `SELECT fruit_id, tree_id, owner_id, broker_id, grade, amount, type, date
+       FROM durian_fruit
+      WHERE fruit_id IN (${ids.map(() => "?").join(",")})`,
+    ...ids
+  );
+  const map = new Map(records.map(r => [r.fruit_id, r]));
+  return ids.map(id => map.get(id)).filter(Boolean);
 }
-
 async function attachReservedFruits(request, tx = prisma) {
   if (!request) return null;
-  const ids = parseReservedFruitIds(request.reservedFruits);
-  if (!ids.length) {
-    return { ...request, fruits: [] };
-  }
+  // ใช้ reserved_fruits (snake_case) ให้ถูกคอลัมน์
+  const ids = parseReservedFruitIds(request.reserved_fruits);
+  if (!ids.length) return { ...request, fruits: [] };
   const fruits = await loadReservedFruits(tx, ids);
   return { ...request, fruits };
 }
-
 async function getRequestWithFruits(id, tx = prisma) {
-  const request = await tx.exportRequest.findUnique({ where: { id } });
+  const [request] = await tx.$queryRawUnsafe(
+    `SELECT * FROM export_request WHERE id = ?`,
+    id
+  );
   return attachReservedFruits(request, tx);
 }
-
-async function nextFruitId(tx) {
-  const last = await tx.durianFruit.findMany({ orderBy: { fruitId: "desc" }, take: 1 });
-  if (!last.length) return "F001";
-  const current = last[0].fruitId;
-  const numeric = parseInt(current.replace(/^F/, ""), 10) || 0;
-  const next = numeric + 1;
-  return `F${next.toString().padStart(3, "0")}`;
+function sumGradesFromFruits(fruits = []) {
+  const totals = { A: 0, B: 0, C: 0 };
+  for (const fruit of fruits) {
+    if (!fruit) continue;
+    const t = normalizeFruitFlowCode(fruit.type); // ไทย -> 'export' ได้
+    if (t !== "export") continue;
+    if (!GRADES.includes(fruit.grade)) continue;
+    totals[fruit.grade] += Number(fruit.amount || 0);
+  }
+  return totals;
 }
 
-async function nextAccountId(tx) {
-  const last = await tx.account.findMany({ orderBy: { accountId: "desc" }, take: 1 });
-  if (!last.length) return "AC001";
-  const current = last[0].accountId;
-  const numeric = parseInt(current.replace(/^AC/, ""), 10) || 0;
-  const next = numeric + 1;
-  return `AC${next.toString().padStart(3, "0")}`;
-}
-
-async function reserveExportFruits(tx, brokerId, grades) {
+/* ---------- Reserve / Release ---------- */
+// จองผลไม้เพื่อส่งออก: แปลง/แตกแถว "เก็บเกี่ยว*" -> "ขนส่งออก"
+async function reserveExportFruits(tx, brokerId, wantByGrade) {
   const reserved = [];
-  for (const grade of EXPORT_GRADES) {
-    let remaining = Number(grades[grade] || 0);
-    if (remaining <= EPSILON) continue;
-    const harvestRecords = await tx.durianFruit.findMany({
-      where: { brokerId, grade, type: FruitFlowType.harvest },
-      orderBy: [{ date: "asc" }, { fruitId: "asc" }],
-    });
+  const stock = await getStockByGrade(brokerId);
+  for (const g of GRADES) {
+    const want = Number(wantByGrade[g] || 0);
+    if (want > (stock[g] || 0) + EPSILON) {
+      throw new Error(`สต็อกเกรด ${g} ไม่เพียงพอ (มี ${stock[g]} ต้องการ ${want})`);
+    }
+  }
 
-    for (const record of harvestRecords) {
+  for (const grade of GRADES) {
+    let remaining = Number(wantByGrade[grade] || 0);
+    if (remaining <= EPSILON) continue;
+
+    const rows = await tx.$queryRawUnsafe(
+      `SELECT fruit_id, tree_id, owner_id, broker_id, grade, amount, type, date
+         FROM durian_fruit
+        WHERE broker_id = ?
+          AND grade = ?
+          AND TRIM(type) LIKE '${TYPE_HARVEST_PREFIX}%'
+        ORDER BY date ASC, fruit_id ASC`,
+      brokerId, grade
+    );
+
+    for (const r of rows) {
       if (remaining <= EPSILON) break;
-      const available = Number(record.amount);
+      const available = Number(r.amount || 0);
       if (available <= EPSILON) continue;
 
       if (available <= remaining + EPSILON) {
+        // ใช้ทั้งแถว -> เปลี่ยน type เป็น "ขนส่งออก"
+        await tx.$executeRawUnsafe(
+          `UPDATE durian_fruit SET type = ? WHERE fruit_id = ?`,
+          TYPE_EXPORT, r.fruit_id
+        );
+        reserved.push({ ...r, type: TYPE_EXPORT });
         remaining -= available;
-        const updated = await tx.durianFruit.update({
-          where: { fruitId: record.fruitId },
-          data: { type: FruitFlowType.export },
-        });
-        reserved.push(updated);
       } else {
+        // ใช้บางส่วน -> หักแถวเดิม + สร้างแถวใหม่เป็น "ขนส่งออก"
         const leftover = available - remaining;
-        await tx.durianFruit.update({
-          where: { fruitId: record.fruitId },
-          data: { amount: leftover },
+
+        await tx.$executeRawUnsafe(
+          `UPDATE durian_fruit SET amount = ? WHERE fruit_id = ?`,
+          leftover, r.fruit_id
+        );
+
+        const newId = await nextFruitId(tx);
+        await tx.$executeRawUnsafe(
+          `INSERT INTO durian_fruit
+             (fruit_id, tree_id, owner_id, broker_id, grade, amount, type, date)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          newId, r.tree_id, r.owner_id, r.broker_id, r.grade, remaining, TYPE_EXPORT, r.date
+        );
+
+        reserved.push({
+          fruit_id: newId,
+          tree_id: r.tree_id,
+          owner_id: r.owner_id,
+          broker_id: r.broker_id,
+          grade: r.grade,
+          amount: remaining,
+          type: TYPE_EXPORT,
+          date: r.date,
         });
-        const newRecord = await tx.durianFruit.create({
-          data: {
-            fruitId: await nextFruitId(tx),
-            treeId: record.treeId,
-            ownerId: record.ownerId,
-            brokerId: record.brokerId,
-            grade: record.grade,
-            amount: remaining,
-            type: FruitFlowType.export,
-            date: record.date,
-          },
-        });
-        reserved.push(newRecord);
         remaining = 0;
       }
     }
 
-    if (remaining > EPSILON) {
-      throw new Error("สต็อกไม่พอสำหรับการจอง");
-    }
+    if (remaining > EPSILON) throw new Error(`สต็อกเกรด ${grade} ไม่เพียงพอ`);
   }
+
   return reserved;
 }
 
+// ยกเลิกการจอง -> เปลี่ยน "ขนส่งออก" กลับเป็น "เก็บเกี่ยว"
 async function releaseReservedFruits(tx, request) {
   const fruits = request?.fruits || [];
-  const released = [];
-  for (const fruit of fruits) {
-    if (!fruit || normalizeFruitFlowCode(fruit.type) !== "export") continue;
-    const updated = await tx.durianFruit.update({
-      where: { fruitId: fruit.fruitId },
-      data: { type: FruitFlowType.harvest },
-    });
-    released.push(updated);
+  for (const f of fruits) {
+    if (!f) continue;
+    const t = normalizeFruitFlowCode(f.type);
+    if (t !== "export") continue;
+    await tx.$executeRawUnsafe(
+      `UPDATE durian_fruit SET type = ? WHERE fruit_id = ?`,
+      TYPE_HARVEST_PREFIX, f.fruit_id
+    );
   }
-  return released;
 }
 
+/* ---------- Revenue booking ---------- */
+// ดึงสัญญา (ไทย) + ราคาต่อเกรดจาก contract_price.price
 async function getLatestAcceptedContract(brokerId) {
-  return prisma.contract.findFirst({
-    where: { brokerId, status: "accepted" },
-    orderBy: { contractDate: "desc" },
-    include: { prices: true },
-  });
+  // ยอมรับล่าสุดก่อน; ถ้าไม่มี ตกไปล่าสุด
+  const [acc] = await prisma.$queryRawUnsafe(
+    `SELECT contract_id
+       FROM contract
+      WHERE broker_id = ?
+        AND status = 'ยอมรับ'
+      ORDER BY contract_date DESC
+      LIMIT 1`,
+    brokerId
+  );
+  let cid = acc?.contract_id || null;
+  if (!cid) {
+    const [any] = await prisma.$queryRawUnsafe(
+      `SELECT contract_id
+         FROM contract
+        WHERE broker_id = ?
+        ORDER BY contract_date DESC
+        LIMIT 1`,
+      brokerId
+    );
+    cid = any?.contract_id || null;
+  }
+  if (!cid) return { contract_id: null, prices: {} };
+
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT grade, price FROM contract_price WHERE contract_id = ?`,
+    cid
+  );
+  const prices = {};
+  for (const r of rows) if (GRADES.includes(r.grade)) prices[r.grade] = Number(r.price || 0);
+  return { contract_id: cid, prices };
 }
 
-async function bookRevenue(tx, brokerId, contract, grades, reqId) {
-  const priceMap = (contract?.prices || []).reduce((acc, price) => {
-    acc[price.grade] = Number(price.price);
-    return acc;
-  }, {});
-  for (const grade of EXPORT_GRADES) {
-    const weight = Number(grades[grade] || 0);
-    const price = Number(priceMap[grade] || 0);
+async function bookRevenue(tx, brokerId, contract, totals, reqId) {
+  const priceMap = contract?.prices || {};
+  for (const g of GRADES) {
+    const weight = Number(totals[g] || 0);
+    const price = Number(priceMap[g] || 0);
     if (weight > EPSILON && price > 0) {
-      await tx.account.create({
-        data: {
-          accountId: await nextAccountId(tx),
-          ownerId: 1,
-          brokerId,
-          type: "income",
-          amount: weight * price,
-          paymentMethod: "bankTransfer",
-          note: `รายรับจากส่งออก เกรด ${grade} = ${weight} กก. x ${price} บาท/กก. (req ${reqId.slice(0, 8)})`,
-          invoiceRef: `EXPORT-${reqId.slice(0, 8)}-${grade}`,
-          status: "pending",
-          date: new Date(),
-        },
-      });
+      await tx.$executeRawUnsafe(
+        `INSERT INTO account
+           (account_id, owner_id, broker_id, type, amount, payment_method, note, invoice_ref, status, date)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        await nextAccountId(tx),
+        1, brokerId,
+        'income',
+        weight * price,
+        'bankTransfer',
+        `รายรับจากส่งออก เกรด ${g} = ${weight} กก. x ${price} บาท/กก. (req ${String(reqId).slice(0,8)})`,
+        `EXPORT-${String(reqId).slice(0,8)}-${g}`,
+        'pending',
+        new Date()
+      );
     }
   }
 }
 
+/* ============ ROUTES ============ */
+// GET /export/stock?broker_id=...  -> amount + price + value ต่อเกรด
 router.get("/stock", authenticate(), async (req, res) => {
-  const brokerId = req.query.broker_id ? String(req.query.broker_id) : null;
-  const effective = brokerId ?? (req.user.role === "broker" ? req.user.id : null);
-  const stock = await getStockByGrade(effective);
-  res.json({ stock });
-});
+  try {
+    const brokerId = String(
+      req.query.broker_id ||
+      req.query.brokerId ||
+      req.user?.broker_id ||   // ใช้รหัสโบรกเกอร์ก่อน
+      req.user?.id || "1"
+    );
 
-const submitSchema = z.object({
-  grades: z.object({
-    A: z.number().nonnegative(),
-    B: z.number().nonnegative(),
-    C: z.number().nonnegative(),
-  }),
-});
+    const [amounts, prices] = await Promise.all([
+      getStockByGrade(brokerId),
+      getPriceMap(brokerId),
+    ]);
 
-router.post("/requests", authenticate(), requireRole("broker"), async (req, res) => {
-  const parsed = submitSchema.safeParse({
-    grades: {
-      A: Number(req.body.grades?.A || 0),
-      B: Number(req.body.grades?.B || 0),
-      C: Number(req.body.grades?.C || 0),
-    },
-  });
-  if (!parsed.success) {
-    return res.status(400).json({ message: "ข้อมูลไม่ถูกต้อง", details: parsed.error.flatten() });
+    const stock = {};
+    let grandTotal = 0;
+    for (const g of GRADES) {
+      const amount = Number(amounts[g] || 0);
+      const price = Number(prices[g] || 0);
+      const value = +(amount * price).toFixed(2);
+      stock[g] = { amount, price, value };
+      grandTotal += value;
+    }
+
+    res.json({ stock, grandTotal: +grandTotal.toFixed(2) });
+  } catch (err) {
+    console.error("❌ /export/stock error:", err);
+    res.status(500).json({ message: "Server error" });
   }
+});
 
-  const { grades } = parsed.data;
-  if (["A", "B", "C"].every((g) => Number(grades[g] || 0) <= EPSILON)) {
+// POST /export/requests  (broker ส่งคำขอ)
+router.post("/requests", authenticate(), requireRole("broker"), async (req, res) => {
+  const grades = {
+    A: Number(req.body?.grades?.A || 0),
+    B: Number(req.body?.grades?.B || 0),
+    C: Number(req.body?.grades?.C || 0),
+  };
+  if (GRADES.every(g => (grades[g] || 0) <= EPSILON)) {
     return res.status(400).json({ message: "น้ำหนักอย่างน้อยหนึ่งเกรดต้องมากกว่า 0" });
   }
 
-  const stock = await getStockByGrade(req.user.id);
-  if (grades.A > stock.A || grades.B > stock.B || grades.C > stock.C) {
-    return res.status(400).json({ message: "น้ำหนักบางเกรดเกินกว่าสต็อกพร้อมส่งออก" });
+  const brokerId = String(req.body?.broker_id || req.user?.broker_id || req.user?.id);
+
+  const stock = await getStockByGrade(brokerId);
+  for (const g of GRADES) {
+    if (Number(grades[g] || 0) > Number(stock[g] || 0)) {
+      return res.status(400).json({ message: "น้ำหนักบางเกรดเกินกว่าสต็อกพร้อมส่งออก" });
+    }
   }
 
   try {
     const created = await prisma.$transaction(async (tx) => {
-      const request = await tx.exportRequest.create({
-        data: {
-          brokerId: req.user.id,
-          gradeA: grades.A,
-          gradeB: grades.B,
-          gradeC: grades.C,
-          status: "pending",
-        },
-      });
+      // สร้างคำขอ (MariaDB ไม่มี RETURNING)
+      const [{ id: reqId }] = await tx.$queryRawUnsafe(`SELECT UUID() AS id`);
+      await tx.$executeRawUnsafe(
+        `INSERT INTO export_request (id, broker_id, grade_a, grade_b, grade_c, status, created_at, reserved_fruits)
+         VALUES (?, ?, ?, ?, ?, 'pending', NOW(), NULL)`,
+        reqId, brokerId, grades.A, grades.B, grades.C
+      );
+      const [request] = await tx.$queryRawUnsafe(
+        `SELECT * FROM export_request WHERE id = ?`,
+        reqId
+      );
 
-      const reserved = await reserveExportFruits(tx, req.user.id, grades);
-      if (!reserved.length) {
-        throw new Error("ไม่สามารถจองผลผลิตได้");
-      }
-
+      // จองผลผลิต
+      const reserved = await reserveExportFruits(tx, brokerId, grades);
       const totals = sumGradesFromFruits(reserved);
-      const reservedIds = reserved.map((fruit) => fruit.fruitId);
-      const updated = await tx.exportRequest.update({
-        where: { id: request.id },
-        data: {
-          gradeA: totals.A,
-          gradeB: totals.B,
-          gradeC: totals.C,
-          reservedFruits: serializeReservedFruitIds(reservedIds),
-        },
-      });
+      const reservedIds = reserved.map(f => f.fruit_id);
 
-      return attachReservedFruits(updated, tx);
+      // อัปเดตรายการที่สร้าง
+      await tx.$executeRawUnsafe(
+        `UPDATE export_request
+            SET grade_a = ?, grade_b = ?, grade_c = ?, reserved_fruits = ?
+          WHERE id = ?`,
+        totals.A, totals.B, totals.C, serializeReservedFruitIds(reservedIds), request.id
+      );
+
+      const withFruits = await attachReservedFruits(request, tx);
+      return withFruits;
     });
 
-    res.status(201).json({ data: mapExportRequest(created) });
+    // ส่งฟิลด์ที่ FE ใช้แน่ ๆ เพื่อกัน Invalid Date / ค่าศูนย์
+    const mapped = mapExportRequest(created) || {};
+    res.status(201).json({
+      data: {
+        ...mapped,
+        gradeA: Number(created.grade_a ?? mapped.gradeA ?? 0),
+        gradeB: Number(created.grade_b ?? mapped.gradeB ?? 0),
+        gradeC: Number(created.grade_c ?? mapped.gradeC ?? 0),
+        total:
+          Number(created.grade_a ?? mapped.gradeA ?? 0) +
+          Number(created.grade_b ?? mapped.gradeB ?? 0) +
+          Number(created.grade_c ?? mapped.gradeC ?? 0),
+        createdAt: created.created_at
+          ? new Date(created.created_at).toISOString()
+          : (mapped.createdAt || null),
+        fruits: created.fruits || [],
+      },
+    });
   } catch (err) {
+    console.error("❌ POST /export/requests error:", err);
     res.status(400).json({ message: err.message || "ไม่สามารถสร้างคำขอได้" });
   }
 });
 
+// GET /export/requests  (owner/broker ดูรายการ)
 router.get("/requests", authenticate(), async (req, res) => {
-  const { broker_id: brokerIdParam } = req.query;
-  const where = {};
+  const whereSql = [];
+  const params = [];
   if (req.user.role === "broker") {
-    where.brokerId = req.user.id;
+    whereSql.push("broker_id = ?");
+    params.push(String(req.user.broker_id || req.user.id));
   }
-  if (brokerIdParam) {
-    where.brokerId = String(brokerIdParam);
+  if (req.query.broker_id) {
+    whereSql.push("broker_id = ?");
+    params.push(String(req.query.broker_id));
   }
-  const requests = await prisma.exportRequest.findMany({
-    where,
-    orderBy: { createdAt: "desc" },
+  const sql =
+    `SELECT * FROM export_request ` +
+    (whereSql.length ? `WHERE ${whereSql.join(" AND ")} ` : "") +
+    `ORDER BY created_at DESC`;
+
+  const rows = await prisma.$queryRawUnsafe(sql, ...params);
+  const withFruits = await Promise.all(rows.map((r) => attachReservedFruits(r)));
+
+  // map เป็นรูปแบบที่ FE ใช้ + กัน Invalid Date
+  const data = withFruits.map((r) => {
+    const base = mapExportRequest(r) || {};
+    const totals = sumGradesFromFruits(r.fruits || []);
+    const a = Number(r.grade_a ?? base.gradeA ?? totals.A ?? 0);
+    const b = Number(r.grade_b ?? base.gradeB ?? totals.B ?? 0);
+    const c = Number(r.grade_c ?? base.gradeC ?? totals.C ?? 0);
+    return {
+      ...base,
+      id: r.id,
+      brokerId: r.broker_id ?? base.brokerId,
+      gradeA: a,
+      gradeB: b,
+      gradeC: c,
+      total: a + b + c,
+      createdAt: r.created_at
+        ? new Date(r.created_at).toISOString()
+        : (base.createdAt || null),
+      fruits: (r.fruits || []).map((f) => ({
+        fruit_id: f.fruit_id, grade: f.grade, amount: Number(f.amount || 0), type: f.type, date: f.date
+      })),
+    };
   });
-  const withFruits = await Promise.all(requests.map((req) => attachReservedFruits(req)));
-  res.json({ data: withFruits.map(mapExportRequest) });
+
+  res.json({ data });
 });
 
+// POST /export/requests/:id/withdraw  (broker ยกเลิกคำขอที่ยัง pending)
 router.post("/requests/:id/withdraw", authenticate(), requireRole("broker"), async (req, res) => {
   const { id } = req.params;
   const request = await getRequestWithFruits(id);
-  if (!request || request.brokerId !== req.user.id) {
+  if (!request || String(request.brokerId || request.broker_id) !== String(req.user.broker_id || req.user.id)) {
     return res.status(404).json({ message: "ไม่พบคำขอ" });
   }
   if (request.status !== "pending") {
@@ -298,17 +481,38 @@ router.post("/requests/:id/withdraw", authenticate(), requireRole("broker"), asy
   const updated = await prisma.$transaction(async (tx) => {
     const current = await getRequestWithFruits(id, tx);
     await releaseReservedFruits(tx, current);
-    const cleared = await tx.exportRequest.update({
-      where: { id },
-      data: { status: "withdrawn", reservedFruits: null },
-    });
-
-    return attachReservedFruits(cleared, tx);
+    await tx.$executeRawUnsafe(
+      `UPDATE export_request SET status = 'withdrawn', reserved_fruits = NULL WHERE id = ?`,
+      id
+    );
+    const cleared = await getRequestWithFruits(id, tx);
+    return cleared;
   });
 
-  res.json({ data: mapExportRequest(updated) });
+  const totals = sumGradesFromFruits(updated.fruits || []);
+  const mapped = mapExportRequest(updated) || {};
+  res.json({
+    data: {
+      ...mapped,
+      id: updated.id,
+      brokerId: updated.broker_id ?? mapped.brokerId,
+      status: updated.status,
+      gradeA: Number(updated.grade_a ?? mapped.gradeA ?? totals.A ?? 0),
+      gradeB: Number(updated.grade_b ?? mapped.gradeB ?? totals.B ?? 0),
+      gradeC: Number(updated.grade_c ?? mapped.gradeC ?? totals.C ?? 0),
+      total:
+        Number(updated.grade_a ?? mapped.gradeA ?? totals.A ?? 0) +
+        Number(updated.grade_b ?? mapped.gradeB ?? totals.B ?? 0) +
+        Number(updated.grade_c ?? mapped.gradeC ?? totals.C ?? 0),
+      createdAt: updated.created_at
+        ? new Date(updated.created_at).toISOString()
+        : (mapped.createdAt || null),
+      fruits: updated.fruits || [],
+    },
+  });
 });
 
+// POST /export/requests/:id/approve  (owner อนุมัติ)
 router.post("/requests/:id/approve", authenticate(), requireRole("owner"), async (req, res) => {
   const { id } = req.params;
   const request = await getRequestWithFruits(id);
@@ -317,8 +521,9 @@ router.post("/requests/:id/approve", authenticate(), requireRole("owner"), async
     return res.status(400).json({ message: "คำขอไม่ได้อยู่ในสถานะรอการยืนยัน" });
   }
 
-  const contract = await getLatestAcceptedContract(request.brokerId);
-  if (!contract) {
+  const brokerId = String(request.broker_id || request.brokerId);
+  const contract = await getLatestAcceptedContract(brokerId);
+  if (!contract?.contract_id) {
     return res.status(400).json({ message: "ไม่พบข้อเสนอที่ยอมรับของผู้รับเหมารายนี้" });
   }
 
@@ -326,7 +531,7 @@ router.post("/requests/:id/approve", authenticate(), requireRole("owner"), async
     const result = await prisma.$transaction(async (tx) => {
       const current = await getRequestWithFruits(id, tx);
       const reservedFruits = (current?.fruits || []).filter(
-        (fruit) => fruit && normalizeFruitFlowCode(fruit.type) === "export"
+        (f) => f && normalizeFruitFlowCode(f.type) === "export"
       );
       const totals = sumGradesFromFruits(reservedFruits);
       const totalWeight = totals.A + totals.B + totals.C;
@@ -334,45 +539,61 @@ router.post("/requests/:id/approve", authenticate(), requireRole("owner"), async
         throw new Error("ไม่พบผลผลิตที่จองไว้สำหรับคำขอนี้");
       }
 
+      // stamp วันที่ส่งออกจริงให้ผลไม้ที่จองไว้ (ยังคง type = ขนส่งออก)
       const now = new Date();
-      const exported = [];
-      for (const fruit of reservedFruits) {
-        const updatedFruit = await tx.durianFruit.update({
-          where: { fruitId: fruit.fruitId },
-          data: { date: now },
-        });
-        exported.push(updatedFruit);
+      for (const f of reservedFruits) {
+        await tx.$executeRawUnsafe(
+          `UPDATE durian_fruit SET date = ? WHERE fruit_id = ?`,
+          now, f.fruit_id
+        );
       }
 
-      await bookRevenue(tx, current.brokerId, contract, totals, current.id);
+      // ลงบัญชีรายรับตามราคาในสัญญา
+      await bookRevenue(tx, brokerId, contract, totals, id);
 
-      const updatedRequest = await tx.exportRequest.update({
-        where: { id },
-        data: {
-          status: "confirmed",
-          gradeA: totals.A,
-          gradeB: totals.B,
-          gradeC: totals.C,
-          reservedFruits: serializeReservedFruitIds(reservedFruits.map((fruit) => fruit.fruitId)),
-        },
-      });
+      // อนุมัติคำขอ
+      await tx.$executeRawUnsafe(
+        `UPDATE export_request
+            SET status = 'confirmed',
+                grade_a = ?, grade_b = ?, grade_c = ?,
+                reserved_fruits = ?
+          WHERE id = ?`,
+        totals.A, totals.B, totals.C,
+        serializeReservedFruitIds(reservedFruits.map(f => f.fruit_id)),
+        id
+      );
 
-      const withFruits = await attachReservedFruits(updatedRequest, tx);
-
-      return { updatedRequest: withFruits, exported };
+      const updated = await getRequestWithFruits(id, tx);
+      return updated;
     });
 
+    const mapped = mapExportRequest(result) || {};
     res.json({
       data: {
-        request: mapExportRequest(result.updatedRequest),
-        fruits: result.exported.map(mapFruit),
+        ...mapped,
+        id: result.id,
+        brokerId: result.broker_id ?? mapped.brokerId,
+        status: result.status,
+        gradeA: Number(result.grade_a ?? mapped.gradeA ?? 0),
+        gradeB: Number(result.grade_b ?? mapped.gradeB ?? 0),
+        gradeC: Number(result.grade_c ?? mapped.gradeC ?? 0),
+        total:
+          Number(result.grade_a ?? mapped.gradeA ?? 0) +
+          Number(result.grade_b ?? mapped.gradeB ?? 0) +
+          Number(result.grade_c ?? mapped.gradeC ?? 0),
+        createdAt: result.created_at
+          ? new Date(result.created_at).toISOString()
+          : (mapped.createdAt || null),
+        fruits: result.fruits || [],
       },
     });
   } catch (err) {
+    console.error("❌ POST /export/requests/:id/approve error:", err);
     res.status(400).json({ message: err.message || "ไม่สามารถยืนยันคำขอได้" });
   }
 });
 
+// POST /export/requests/:id/reject  (owner ปฏิเสธ)
 router.post("/requests/:id/reject", authenticate(), requireRole("owner"), async (req, res) => {
   const { id } = req.params;
   const request = await getRequestWithFruits(id);
@@ -384,15 +605,34 @@ router.post("/requests/:id/reject", authenticate(), requireRole("owner"), async 
   const updated = await prisma.$transaction(async (tx) => {
     const current = await getRequestWithFruits(id, tx);
     await releaseReservedFruits(tx, current);
-    const cleared = await tx.exportRequest.update({
-      where: { id },
-      data: { status: "rejected", reservedFruits: null },
-    });
-
-    return attachReservedFruits(cleared, tx);
+    await tx.$executeRawUnsafe(
+      `UPDATE export_request SET status = 'rejected', reserved_fruits = NULL WHERE id = ?`,
+      id
+    );
+    const cleared = await getRequestWithFruits(id, tx);
+    return cleared;
   });
 
-  res.json({ data: mapExportRequest(updated) });
+  const mapped = mapExportRequest(updated) || {};
+  res.json({
+    data: {
+      ...mapped,
+      id: updated.id,
+      brokerId: updated.broker_id ?? mapped.brokerId,
+      status: updated.status,
+      gradeA: Number(updated.grade_a ?? mapped.gradeA ?? 0),
+      gradeB: Number(updated.grade_b ?? mapped.gradeB ?? 0),
+      gradeC: Number(updated.grade_c ?? mapped.gradeC ?? 0),
+      total:
+        Number(updated.grade_a ?? mapped.gradeA ?? 0) +
+        Number(updated.grade_b ?? mapped.gradeB ?? 0) +
+        Number(updated.grade_c ?? mapped.gradeC ?? 0),
+      createdAt: updated.created_at
+        ? new Date(updated.created_at).toISOString()
+        : (mapped.createdAt || null),
+      fruits: updated.fruits || [],
+    },
+  });
 });
 
 export default router;
