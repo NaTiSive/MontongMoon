@@ -10,15 +10,8 @@ import PrimaryButton from "../../components/PrimaryButton";
 import { useAuth } from "../../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 
-import { seedTreesIfEmpty, listTrees } from "../../api/trees";               // ต้นทุเรียน (โหมดรายต้น)
-import { createProblem, listProblems, brokerConfirmFixed } from "../../api/problems"; // API ปัญหา (UC3+UC5)
-
-// อ้างถึงโครง API ที่มีอยู่: createProblem, listProblems, brokerConfirmFixed
-// - createProblem({ broker_id, tree_id, description }) สร้างปัญหาใหม่ (status เริ่ม "เปิดปัญหา")
-// - listProblems() คืนรายการทั้งหมด (เราจะกรองด้วย broker_id ฝั่งหน้า)
-// - brokerConfirmFixed(id) อัปเดตสถานะเป็น "แก้ไขแล้ว"
-// ดูฟังก์ชันได้ใน src/api/problems.js
-// (สอดคล้องกับที่คุณอัปโหลด) :contentReference[oaicite:3]{index=3}
+import { seedTreesIfEmpty, listTrees } from "../../api/trees";
+import { createProblem, listProblems, brokerConfirmFixed } from "../../api/problems";
 
 export default function BrokerReportProblem() {
   const { user } = useAuth();
@@ -37,37 +30,52 @@ export default function BrokerReportProblem() {
 
   // ----- รายการปัญหาของฉัน -----
   const [rows, setRows] = useState([]);
-  const [q, setQ] = useState("");       // ค้นหา
-  const [typeFilter, setTypeFilter] = useState(""); // ฟิลเตอร์ประเภท
+  const [q, setQ] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
 
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
         await seedTreesIfEmpty();
-        const t = await listTrees();                                   // [{ id, name, status }, ...]
+        const t = await listTrees();
         if (!alive) return;
         setTrees(t || []);
 
         const all = await listProblems();
         if (!alive) return;
-        const mine = (all || []).filter((p) => p.broker_id === user?.broker_id);
+        // รองรับทั้ง broker_id และ brokerId
+        const mine = (all || []).filter(
+          (p) => String(p.broker_id ?? p.brokerId ?? "") === String(user?.broker_id ?? "")
+        );
         setRows(mine);
-      } catch (e) {
+      } catch {
         if (!alive) return;
         setRows([]);
       }
     })();
-    return () => {
-      alive = false;
-    };
+    return () => { alive = false; };
   }, [user?.broker_id]);
 
-  // แสดงชื่อชนิด (รายต้น/ทั้งสวน) จาก description ที่ prefix ไว้
   const parseType = (desc = "") => {
     if (desc.startsWith("[รายต้น]")) return "รายต้น";
     if (desc.startsWith("[ทั้งสวน]")) return "ทั้งสวน";
     return "-";
+  };
+
+  // ✅ ครอบคลุมชื่อสถานะหลากหลายรูปแบบ (ไทย/อังกฤษ)
+  const isPendingStatus = (s) => {
+    const k = String(s || "")
+      .toLowerCase()
+      .replace(/\s/g, ""); // ตัดช่องว่างออก เผื่อมีเว้นวรรค
+    return (
+      k.includes("ระหว่างแก้ไข") ||
+      k.includes("รอการแก้ไข") ||
+      k.includes("รอดำเนินการ") ||
+      k === "pending" ||
+      k === "inprogress" ||
+      k === "progress"
+    );
   };
 
   const filtered = useMemo(() => {
@@ -81,56 +89,57 @@ export default function BrokerReportProblem() {
   }, [rows, q, typeFilter]);
 
   const fmtDT = (iso) =>
-    iso ? new Date(iso).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" }) : "-";
+    iso
+      ? new Date(iso).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" })
+      : "-";
 
-  // ----- ส่งรายงานใหม่ (UC3) -----
+  // ----- ส่งรายงานใหม่ -----
   const submit = async () => {
     if (!note.trim()) return alert("กรุณากรอกรายละเอียดปัญหา");
     if (mode === "รายต้น" && !treeId) return alert("กรุณาเลือกต้นทุเรียน");
 
-    // เก็บประเภทเข้าไปใน description ตาม API เดิม
-    const description = `[${mode}] ${note.trim()}`;
-
     await createProblem({
-      broker_id: user?.broker_id,
-      tree_id: mode === "รายต้น" ? (treeId || null) : null,
-      description,
+      scope: mode,
+      tree_id: mode === "รายต้น" ? treeId || null : null,
+      description: note.trim(),
     });
 
     const all = await listProblems();
-    const mine = (all || []).filter((p) => p.broker_id === user?.broker_id);
+    const mine = (all || []).filter(
+      (p) => String(p.broker_id ?? p.brokerId ?? "") === String(user?.broker_id ?? "")
+    );
     setRows(mine);
 
-    // reset form
     setNote("");
     if (mode === "รายต้น") setTreeId("");
   };
 
-  // ----- ยืนยันแก้ไขแล้ว (UC5) -----
+  // ----- นายหน้ายืนยัน “แก้ไขแล้ว” -----
   const confirmFixed = async (id) => {
     await brokerConfirmFixed(id);
     const all = await listProblems();
-    const mine = (all || []).filter((p) => p.broker_id === user?.broker_id);
+    const mine = (all || []).filter(
+      (p) => String(p.broker_id ?? p.brokerId ?? "") === String(user?.broker_id ?? "")
+    );
     setRows(mine);
   };
 
-  // ตัวช่วยเรนเดอร์ badge สถานะ
   const badge = (status) => {
     const cls =
-      status === "เปิดปัญหา"
+      String(status) === "เปิดปัญหา"
         ? "bg-rose-100 text-rose-700"
-        : status === "ระหว่างแก้ไข"
+        : isPendingStatus(status)
         ? "bg-amber-100 text-amber-700"
         : "bg-emerald-100 text-emerald-700";
     return <span className={`px-3 py-1 rounded-lg text-xs font-medium ${cls}`}>{status}</span>;
   };
 
   return (
-    <div className={`min-h-screen w-full bg-slate-50 text-slate-900 flex flex-col md:flex-row ${
-      isSidebarOpen ? "overflow-hidden md:overflow-auto" : ""
-    }`}>
+    <div className={`min-h-screen w-full bg-slate-50 text-slate-900 flex flex-col md:flex-row ${isSidebarOpen ? "overflow-hidden md:overflow-auto" : ""}`}>
       <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
-      {isSidebarOpen && <div className="fixed inset-0 bg-black/40 z-40 md:hidden" onClick={() => setIsSidebarOpen(false)} />}
+      {isSidebarOpen && (
+        <div className="fixed inset-0 bg-black/40 z-40 md:hidden" onClick={() => setIsSidebarOpen(false)} />
+      )}
 
       <div className="flex-1 min-w-0 flex flex-col">
         <HeaderWrapper
@@ -141,8 +150,7 @@ export default function BrokerReportProblem() {
 
         <main className="p-4 sm:p-6 pt-28">
           <div className="max-w-5xl mx-auto space-y-4">
-
-            {/* ฟอร์มรายงานใหม่ (UC3) */}
+            {/* ฟอร์ม */}
             <Card>
               <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
                 <div className="md:col-span-2">
@@ -193,7 +201,7 @@ export default function BrokerReportProblem() {
               </div>
             </Card>
 
-            {/* ฟิลเตอร์รายการ */}
+            {/* ตัวกรอง */}
             <Card>
               <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                 <InputField
@@ -217,7 +225,7 @@ export default function BrokerReportProblem() {
               </div>
             </Card>
 
-            {/* ตารางรายการของฉัน + ปุ่มยืนยันแก้ไข (UC5) */}
+            {/* ตาราง + ปุ่มยืนยันแก้ไข */}
             <Card>
               {filtered.length === 0 ? (
                 <div className="text-sm text-slate-600">ยังไม่มีรายการปัญหา</div>
@@ -243,14 +251,13 @@ export default function BrokerReportProblem() {
                           <td className="py-2 px-3">{parseType(r.description)}</td>
                           <td className="py-2 px-3">{r.tree_id || "-"}</td>
                           <td className="py-2 px-3">
-                            {/* ตัด prefix [รายต้น]/[ทั้งสวน] ออกจากรายละเอียดเพื่อให้อ่านง่าย */}
                             {String(r.description || "").replace(/^\[(รายต้น|ทั้งสวน)\]\s*/u, "")}
                           </td>
                           <td className="py-2 px-3">{badge(r.status)}</td>
                           <td className="py-2 px-3">{r.owner_note || "-"}</td>
                           <td className="py-2 px-3">{fmtDT(r.updated_at || r.created_at)}</td>
                           <td className="py-2 px-3">
-                            {r.status === "ระหว่างแก้ไข" ? (
+                            {isPendingStatus(r.status) ? (
                               <button
                                 onClick={() => confirmFixed(r.id)}
                                 className="px-3 py-1 rounded-lg text-white text-xs bg-emerald-700 hover:bg-emerald-800"
@@ -268,7 +275,7 @@ export default function BrokerReportProblem() {
                 </div>
               )}
               <p className="text-xs text-slate-400 mt-2">
-                * สถานะเริ่มต้น: “เปิดปัญหา” → เจ้าของมอบหมายเป็น “ระหว่างแก้ไข” → นายหน้ายืนยันเป็น “แก้ไขแล้ว”
+                * สถานะเริ่มต้น: “เปิดปัญหา” → เจ้าของมอบหมายเป็น “รอการแก้ไข/ระหว่างแก้ไข” → นายหน้ายืนยันเป็น “แก้ไขแล้ว”
               </p>
             </Card>
           </div>

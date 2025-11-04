@@ -30,7 +30,7 @@ export default function OwnerProblems() {
     (async () => {
       try {
         setLoading(true);
-        const all = await listProblems();
+        const all = await listProblems(); // ✅ ต้อง await
         if (!alive) return;
         setRows(all);
         setErr("");
@@ -42,21 +42,26 @@ export default function OwnerProblems() {
         setLoading(false);
       }
     })();
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+    };
   }, []);
 
   // แยกประเภทจาก description ที่ broker ใส่ prefix ไว้ เช่น "[รายต้น] ใบไหม้..."
   const parseType = (desc = "") => {
     if (desc.startsWith("[รายต้น]")) return "รายต้น";
-    if (desc.startsWith("[ทั้งสวน]")) return "ทั้งสวน";
+    if (desc.startsWith("[ทั้งสวน]") || desc.startsWith("[ภาพรวม]")) return "ทั้งสวน";
     return "-";
   };
-  const stripTypePrefix = (desc = "") => String(desc).replace(/^\[(รายต้น|ทั้งสวน)\]\s*/u, "");
+  const stripTypePrefix = (desc = "") =>
+    String(desc).replace(/^\[(รายต้น|ทั้งสวน|ภาพรวม)\]\s*/u, "");
 
   const filtered = useMemo(() => {
     const k = q.trim().toLowerCase();
     return rows.filter((p) => {
-      const text = `${p.id} ${p.tree_id ?? ""} ${p.description ?? ""} ${p.owner_note ?? ""} ${p.status ?? ""}`.toLowerCase();
+      const text = `${p.id} ${p.tree_id ?? ""} ${p.description ?? ""} ${
+        p.owner_note ?? ""
+      } ${p.status ?? ""}`.toLowerCase();
       const hitQ = k ? text.includes(k) : true;
       const tp = parseType(p.description);
       const hitType = typeFilter ? tp === typeFilter : true;
@@ -71,7 +76,7 @@ export default function OwnerProblems() {
       if (!window.confirm("ไม่ใส่โน้ตตอนมอบหมายใช่ไหม?")) return;
     }
     try {
-      const rec = await ownerAssignNoteAndSetPending(id, note); // → สถานะ “ระหว่างแก้ไข”
+      const rec = await ownerAssignNoteAndSetPending(id, note); // ✅ await ผลลัพธ์จริง
       setRows((r) => r.map((x) => (x.id === id ? rec : x)));
       setNoteMap((m) => ({ ...m, [id]: "" }));
     } catch (e) {
@@ -86,11 +91,20 @@ export default function OwnerProblems() {
         : status === "ระหว่างแก้ไข"
         ? "bg-amber-100 text-amber-700"
         : "bg-emerald-100 text-emerald-700";
-    return <span className={`px-3 py-1 rounded-lg text-xs font-medium ${cls}`}>{status}</span>;
+    return (
+      <span className={`px-3 py-1 rounded-lg text-xs font-medium ${cls}`}>
+        {status}
+      </span>
+    );
   };
 
   const fmtDT = (iso) =>
-    iso ? new Date(iso).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" }) : "-";
+    iso
+      ? new Date(iso).toLocaleString("th-TH", {
+          dateStyle: "medium",
+          timeStyle: "short",
+        })
+      : "-";
 
   return (
     <div
@@ -100,7 +114,10 @@ export default function OwnerProblems() {
     >
       <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
       {isSidebarOpen && (
-        <div className="fixed inset-0 bg-black/40 z-40 md:hidden" onClick={() => setIsSidebarOpen(false)} />
+        <div
+          className="fixed inset-0 bg-black/40 z-40 md:hidden"
+          onClick={() => setIsSidebarOpen(false)}
+        />
       )}
 
       <div className="flex-1 min-w-0 flex flex-col">
@@ -164,21 +181,33 @@ export default function OwnerProblems() {
                     </thead>
                     <tbody>
                       {filtered.map((p, i) => (
-                        <tr key={p.id} className={i % 2 === 0 ? "bg-white" : "bg-slate-50/60"}>
+                        <tr
+                          key={p.id}
+                          className={i % 2 === 0 ? "bg-white" : "bg-slate-50/60"}
+                        >
                           <td className="py-2 px-3">{p.id.slice(0, 8)}</td>
                           <td className="py-2 px-3">{parseType(p.description)}</td>
                           <td className="py-2 px-3">{p.tree_id || "-"}</td>
-                          <td className="py-2 px-3">{stripTypePrefix(p.description)}</td>
+                          <td className="py-2 px-3">
+                            {stripTypePrefix(p.description)}
+                          </td>
                           <td className="py-2 px-3">{badge(p.status)}</td>
                           <td className="py-2 px-3">
                             <input
                               value={noteMap[p.id] ?? p.owner_note ?? ""}
-                              onChange={(e) => setNoteMap((m) => ({ ...m, [p.id]: e.target.value }))}
+                              onChange={(e) =>
+                                setNoteMap((m) => ({
+                                  ...m,
+                                  [p.id]: e.target.value,
+                                }))
+                              }
                               placeholder="พิมพ์แนวทางแก้/มอบหมายงาน"
                               className="w-64 border rounded-lg px-2 py-1"
                             />
                           </td>
-                          <td className="py-2 px-3">{fmtDT(p.updated_at || p.created_at)}</td>
+                          <td className="py-2 px-3">
+                            {fmtDT(p.updated_at || p.created_at)}
+                          </td>
                           <td className="py-2 px-3">
                             {p.status === "เปิดปัญหา" ? (
                               <button
