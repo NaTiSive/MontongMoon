@@ -11,6 +11,7 @@ const PAYMENT_METHOD_INPUT = {
   "โอนเงิน": "bankTransfer",
   "บัตรเครดิต": "creditCard",
   "อื่นๆ": "other",
+  "ผ่อนชำระ": "other",
 };
 
 const TRANSACTION_TYPE_INPUT = {
@@ -23,7 +24,7 @@ router.get("/", authenticate(), async (req, res) => {
   const where = {};
 
   if (req.user?.role === "broker") {
-    where.brokerId = req.user.id;
+    where.brokerId = req.user.broker_id || req.user.id;
   }
 
   if (brokerIdParam) {
@@ -41,7 +42,7 @@ router.get("/", authenticate(), async (req, res) => {
 const createSchema = z.object({
   type: z.enum(["รายรับ", "รายจ่าย"]),
   amount: z.number().positive(),
-  payment_method: z.enum(["เงินสด", "โอนเงิน", "บัตรเครดิต", "อื่นๆ"]),
+  payment_method: z.enum(["เงินสด", "โอนเงิน", "บัตรเครดิต", "อื่นๆ", "ผ่อนชำระ"]),
   note: z.string().optional(),
   date: z.string().datetime().optional(),
 });
@@ -59,7 +60,9 @@ router.post("/", authenticate(), requireRole("broker", "owner"), async (req, res
   }
 
   const { type, amount, payment_method, note, date } = parsed.data;
-  const brokerId = req.user.role === "broker" ? req.user.id : req.body.broker_id ? String(req.body.broker_id) : null;
+  const brokerId = req.user.role === "broker"
+   ? (req.user.broker_id || req.user.id)
+   : (req.body.broker_id ? String(req.body.broker_id) : null);
 
   const tx = await prisma.account.create({
     data: {

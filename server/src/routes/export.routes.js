@@ -137,7 +137,7 @@ async function loadReservedFruits(tx, ids) {
 }
 async function attachReservedFruits(request, tx = prisma) {
   if (!request) return null;
-  // ✅ FIX: ใช้ reserved_fruits (snake_case) ให้ถูกคอลัมน์
+  // ใช้ reserved_fruits (snake_case) ให้ถูกคอลัมน์
   const ids = parseReservedFruitIds(request.reserved_fruits);
   if (!ids.length) return { ...request, fruits: [] };
   const fruits = await loadReservedFruits(tx, ids);
@@ -313,10 +313,16 @@ async function bookRevenue(tx, brokerId, contract, totals, reqId) {
 }
 
 /* ============ ROUTES ============ */
-// GET /export/stock?broker_id=1  -> amount + price + value ต่อเกรด
+// GET /export/stock?broker_id=...  -> amount + price + value ต่อเกรด
 router.get("/stock", authenticate(), async (req, res) => {
   try {
-    const brokerId = String(req.query.broker_id || req.query.brokerId || (req.user.role === "broker" ? req.user.id : "1"));
+    const brokerId = String(
+      req.query.broker_id ||
+      req.query.brokerId ||
+      req.user?.broker_id ||   // ใช้รหัสโบรกเกอร์ก่อน
+      req.user?.id || "1"
+    );
+
     const [amounts, prices] = await Promise.all([
       getStockByGrade(brokerId),
       getPriceMap(brokerId),
@@ -350,7 +356,9 @@ router.post("/requests", authenticate(), requireRole("broker"), async (req, res)
     return res.status(400).json({ message: "น้ำหนักอย่างน้อยหนึ่งเกรดต้องมากกว่า 0" });
   }
 
-  const stock = await getStockByGrade(String(req.user.id));
+  const brokerId = String(req.body?.broker_id || req.user?.broker_id || req.user?.id);
+
+  const stock = await getStockByGrade(brokerId);
   for (const g of GRADES) {
     if (Number(grades[g] || 0) > Number(stock[g] || 0)) {
       return res.status(400).json({ message: "น้ำหนักบางเกรดเกินกว่าสต็อกพร้อมส่งออก" });
@@ -364,7 +372,7 @@ router.post("/requests", authenticate(), requireRole("broker"), async (req, res)
       await tx.$executeRawUnsafe(
         `INSERT INTO export_request (id, broker_id, grade_a, grade_b, grade_c, status, created_at, reserved_fruits)
          VALUES (?, ?, ?, ?, ?, 'pending', NOW(), NULL)`,
-       reqId, String(req.user.id), grades.A, grades.B, grades.C
+        reqId, brokerId, grades.A, grades.B, grades.C
       );
       const [request] = await tx.$queryRawUnsafe(
         `SELECT * FROM export_request WHERE id = ?`,
@@ -372,7 +380,7 @@ router.post("/requests", authenticate(), requireRole("broker"), async (req, res)
       );
 
       // จองผลผลิต
-      const reserved = await reserveExportFruits(tx, String(req.user.id), grades);
+      const reserved = await reserveExportFruits(tx, brokerId, grades);
       const totals = sumGradesFromFruits(reserved);
       const reservedIds = reserved.map(f => f.fruit_id);
 
@@ -388,7 +396,7 @@ router.post("/requests", authenticate(), requireRole("broker"), async (req, res)
       return withFruits;
     });
 
-    // ✅ ส่งฟิลด์ที่ FE ใช้แน่ ๆ เพื่อกัน Invalid Date / ค่าศูนย์
+    // ส่งฟิลด์ที่ FE ใช้แน่ ๆ เพื่อกัน Invalid Date / ค่าศูนย์
     const mapped = mapExportRequest(created) || {};
     res.status(201).json({
       data: {
@@ -418,7 +426,7 @@ router.get("/requests", authenticate(), async (req, res) => {
   const params = [];
   if (req.user.role === "broker") {
     whereSql.push("broker_id = ?");
-    params.push(String(req.user.id));
+    params.push(String(req.user.broker_id || req.user.id));
   }
   if (req.query.broker_id) {
     whereSql.push("broker_id = ?");
@@ -432,7 +440,7 @@ router.get("/requests", authenticate(), async (req, res) => {
   const rows = await prisma.$queryRawUnsafe(sql, ...params);
   const withFruits = await Promise.all(rows.map((r) => attachReservedFruits(r)));
 
-  // ✅ map เป็นรูปแบบที่ FE ใช้ + กัน Invalid Date
+  // map เป็นรูปแบบที่ FE ใช้ + กัน Invalid Date
   const data = withFruits.map((r) => {
     const base = mapExportRequest(r) || {};
     const totals = sumGradesFromFruits(r.fruits || []);
@@ -463,7 +471,7 @@ router.get("/requests", authenticate(), async (req, res) => {
 router.post("/requests/:id/withdraw", authenticate(), requireRole("broker"), async (req, res) => {
   const { id } = req.params;
   const request = await getRequestWithFruits(id);
-  if (!request || String(request.brokerId || request.broker_id) !== String(req.user.id)) {
+  if (!request || String(request.brokerId || request.broker_id) !== String(req.user.broker_id || req.user.id)) {
     return res.status(404).json({ message: "ไม่พบคำขอ" });
   }
   if (request.status !== "pending") {
@@ -513,7 +521,8 @@ router.post("/requests/:id/approve", authenticate(), requireRole("owner"), async
     return res.status(400).json({ message: "คำขอไม่ได้อยู่ในสถานะรอการยืนยัน" });
   }
 
-  const contract = await getLatestAcceptedContract(request.brokerId);
+  const brokerId = String(request.broker_id || request.brokerId);
+  const contract = await getLatestAcceptedContract(brokerId);
   if (!contract?.contract_id) {
     return res.status(400).json({ message: "ไม่พบข้อเสนอที่ยอมรับของผู้รับเหมารายนี้" });
   }
@@ -540,7 +549,7 @@ router.post("/requests/:id/approve", authenticate(), requireRole("owner"), async
       }
 
       // ลงบัญชีรายรับตามราคาในสัญญา
-      await bookRevenue(tx, String(current.brokerId || current.broker_id), contract, totals, id);
+      await bookRevenue(tx, brokerId, contract, totals, id);
 
       // อนุมัติคำขอ
       await tx.$executeRawUnsafe(
