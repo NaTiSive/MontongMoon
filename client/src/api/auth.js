@@ -30,3 +30,14 @@ export async function fetchCurrentUser() {
 export function logout() {
   clearStoredAuth();
 }
+
+export async function updateProfile(payload) {
+  // payload: { name?, phone?, address?, email?, password? }
+  const data = await request("/auth/me", { method: "PATCH", body: payload });
+
+  const auth = getStoredAuth();
+  // อัปเดตข้อมูล user ใน localStorage หลังแก้ไขสำเร็จ
+  setStoredAuth({ token: auth?.token ?? null, user: data.user });
+
+  return data.user;
+}

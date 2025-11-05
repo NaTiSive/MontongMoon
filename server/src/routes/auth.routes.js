@@ -1,107 +1,231 @@
 import { Router } from "express";
-import { z } from "zod";
 import prisma from "../config/prisma.js";
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
 import { authenticate } from "../middleware/auth.js";
-import { comparePassword, hashPassword, signToken } from "../utils/auth.js";
-import { normalizeUserRecord } from "../utils/formatters.js";
-import { getBrokerApprovalStatus } from "../utils/brokers.js";
 
 const router = Router();
 
-const loginSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(1),
-  role: z.enum(["owner", "broker"]),
-});
-
-router.post("/login", async (req, res) => {
-  const parsed = loginSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ message: "ข้อมูลไม่ถูกต้อง", details: parsed.error.flatten() });
-  }
-
-  const { email, password, role } = parsed.data;
-  const user =
-    role === "owner"
-      ? await prisma.owner.findUnique({ where: { email } })
-      : await prisma.broker.findUnique({ where: { email } });
-  if (!user) {
-    return res.status(401).json({ message: "อีเมลหรือรหัสผ่านไม่ถูกต้อง" });
-  }
-
-  const ok = await comparePassword(password, user.password);
-  if (!ok) {
-    return res.status(401).json({ message: "อีเมลหรือรหัสผ่านไม่ถูกต้อง" });
-  }
-
-  let approvalStatus = "approved";
-  if (role === "broker") {
-    approvalStatus = await getBrokerApprovalStatus(user.brokerId);
-  }
-
-  const token = signToken({
-    sub: role === "owner" ? String(user.ownerId) : user.brokerId,
-    role,
-  });
-
-  res.json({ token, user: normalizeUserRecord(user, role, approvalStatus) });
-});
-
-const signupSchema = z.object({
-  name: z.string().min(1),
-  phone: z.string().min(1),
-  email: z.string().email(),
-  address: z.string().min(1),
-  password: z.string().min(6),
-});
-
-router.post("/signup", async (req, res) => {
-  const parsed = signupSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ message: "ข้อมูลไม่ถูกต้อง", details: parsed.error.flatten() });
-  }
-
-  const { name, phone, email, address, password } = parsed.data;
-  const existing = await prisma.broker.findUnique({ where: { email } });
-  if (existing) {
-    return res.status(409).json({ message: "อีเมลนี้ถูกใช้งานแล้ว" });
-  }
-
-  const passwordHash = await hashPassword(password);
-  const brokerId = await generateBrokerId();
-  const broker = await prisma.broker.create({
-    data: {
-      brokerId,
-      brokerName: name,
-      phone,
-      email,
-      address,
-      password: passwordHash,
-      registrationDate: new Date(),
-    },
-  });
-  res.status(201).json({
-    message: "สมัครสำเร็จ",
-    user: normalizeUserRecord(broker, "broker", "pending"),
-  });
-});
-
-router.get("/me", authenticate(), async (req, res) => {
-  res.json({ user: req.user });
-});
-
-async function generateBrokerId() {
-  const lastBroker = await prisma.broker.findMany({
-    orderBy: { brokerId: "desc" },
-    take: 1,
-  });
-  if (!lastBroker.length) {
-    return "B001";
-  }
-  const current = lastBroker[0].brokerId;
-  const numeric = parseInt(current.replace(/^B/, ""), 10) || 0;
-  const next = numeric + 1;
-  return `B${next.toString().padStart(3, "0")}`;
+/* ────────────────────────────────
+   ฟังก์ชันช่วยสร้าง JWT Token
+──────────────────────────────── */
+function createToken(user, role) {
+  const payload = { id: user.id, role };
+  return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: "12h" });
 }
+
+/* ────────────────────────────────
+   LOGIN
+──────────────────────────────── */
+router.post("/login", async (req, res) => {
+  const { email, password, role } = req.body;
+
+  try {
+    if (!email || !password || !role) {
+      return res.status(400).json({ message: "ข้อมูลไม่ครบถ้วน" });
+    }
+
+    let user;
+    if (role === "owner") {
+      user = await prisma.owner.findUnique({ where: { email } });
+      if (!user) return res.status(400).json({ message: "ไม่พบผู้ใช้" });
+
+      if (user.password !== password) {
+        return res.status(400).json({ message: "รหัสผ่านไม่ถูกต้อง" });
+      }
+
+      const token = jwt.sign({ id: user.ownerId, role: "owner" }, process.env.JWT_SECRET, { expiresIn: "12h" });
+      return res.json({
+        token,
+        user: {
+          role: "owner",
+          owner_id: user.ownerId,
+          owner_name: user.ownerName,
+          phone: user.phone,
+          address: user.address,
+          email: user.email,
+        },
+      });
+    }
+
+    if (role === "broker") {
+      user = await prisma.broker.findUnique({ where: { email } });
+      if (!user) return res.status(400).json({ message: "ไม่พบผู้ใช้" });
+
+      if (user.password !== password) {
+        return res.status(400).json({ message: "รหัสผ่านไม่ถูกต้อง" });
+      }
+
+      const token = jwt.sign({ id: user.brokerId, role: "broker" }, process.env.JWT_SECRET, { expiresIn: "12h" });
+      return res.json({
+        token,
+        user: {
+          role: "broker",
+          broker_id: user.brokerId,
+          broker_name: user.brokerName,
+          phone: user.phone,
+          address: user.address,
+          email: user.email,
+        },
+      });
+    }
+
+    return res.status(400).json({ message: "บทบาทไม่ถูกต้อง" });
+  } catch (err) {
+    console.error("Login error:", err);
+    return res.status(500).json({ message: "เกิดข้อผิดพลาดในระบบ" });
+  }
+});
+
+/* ────────────────────────────────
+   SIGN UP (เฉพาะ broker)
+──────────────────────────────── */
+router.post("/signupBroker", async (req, res) => {
+  const { brokerName, phone, address, email, password } = req.body;
+
+  try {
+    if (!brokerName || !phone || !email || !password) {
+      return res.status(400).json({ message: "กรุณากรอกข้อมูลให้ครบถ้วน" });
+    }
+
+    const existingOwner = await prisma.owner.findUnique({ where: { email } });
+    const existingBroker = await prisma.broker.findUnique({ where: { email } });
+    if (existingOwner || existingBroker) {
+      return res.status(400).json({ message: "อีเมลนี้ถูกใช้งานแล้ว" });
+    }
+
+    const count = await prisma.broker.count();
+    const nextId = `B${(count + 1).toString().padStart(3, "0")}`;
+
+    const newBroker = await prisma.broker.create({
+      data: {
+        brokerId: nextId,
+        brokerName,
+        phone,
+        address: address || "",
+        email,
+        password,
+        registrationDate: new Date(),
+      },
+    });
+
+    return res.status(201).json({
+      message: "สมัครสมาชิกสำเร็จ",
+      broker: newBroker,
+    });
+  } catch (err) {
+    console.error("Signup error:", err);
+    return res.status(500).json({ message: "เกิดข้อผิดพลาดในระบบ" });
+  }
+});
+
+/* ────────────────────────────────
+   GET /auth/me
+──────────────────────────────── */
+router.get("/me", authenticate(), async (req, res) => {
+  try {
+    const { role, id } = req.user;
+
+    if (role === "owner") {
+      const o = await prisma.owner.findUnique({ where: { ownerId: Number(id) } });
+      if (!o) return res.status(404).json({ message: "ไม่พบผู้ใช้" });
+      return res.json({
+        user: {
+          role: "owner",
+          owner_id: o.ownerId,
+          owner_name: o.ownerName,
+          phone: o.phone,
+          address: o.address,
+          email: o.email,
+        },
+      });
+    }
+
+    if (role === "broker") {
+      const b = await prisma.broker.findUnique({ where: { brokerId: String(id) } });
+      if (!b) return res.status(404).json({ message: "ไม่พบผู้ใช้" });
+      return res.json({
+        user: {
+          role: "broker",
+          broker_id: b.brokerId,
+          broker_name: b.brokerName,
+          phone: b.phone,
+          address: b.address,
+          email: b.email,
+        },
+      });
+    }
+
+    return res.status(400).json({ message: "บทบาทไม่ถูกต้อง" });
+  } catch (err) {
+    console.error("auth.me error:", err);
+    return res.status(500).json({ message: "เกิดข้อผิดพลาดในระบบ" });
+  }
+});
+
+/* ────────────────────────────────
+   PATCH /auth/me (อัปเดตโปรไฟล์)
+──────────────────────────────── */
+router.patch("/me", authenticate(), async (req, res) => {
+  try {
+    const { role, id } = req.user;
+    const { name, phone, address, email, password } = req.body;
+
+    if (role === "owner") {
+      const data = {};
+      if (name) data.ownerName = name;
+      if (phone) data.phone = phone;
+      if (address) data.address = address;
+      if (email) data.email = email;
+      if (password) data.password = password;
+
+      const updated = await prisma.owner.update({
+        where: { ownerId: Number(id) },
+        data,
+      });
+
+      return res.json({
+        user: {
+          role: "owner",
+          owner_id: updated.ownerId,
+          owner_name: updated.ownerName,
+          phone: updated.phone,
+          address: updated.address,
+          email: updated.email,
+        },
+      });
+    }
+
+    if (role === "broker") {
+      const data = {};
+      if (name) data.brokerName = name;
+      if (phone) data.phone = phone;
+      if (address) data.address = address;
+      if (email) data.email = email;
+      if (password) data.password = password;
+
+      const updated = await prisma.broker.update({
+        where: { brokerId: String(id) },
+        data,
+      });
+
+      return res.json({
+        user: {
+          role: "broker",
+          broker_id: updated.brokerId,
+          broker_name: updated.brokerName,
+          phone: updated.phone,
+          address: updated.address,
+          email: updated.email,
+        },
+      });
+    }
+
+    return res.status(400).json({ message: "บทบาทไม่ถูกต้อง" });
+  } catch (err) {
+    console.error("auth.me PATCH error:", err);
+    return res.status(500).json({ message: "เกิดข้อผิดพลาดในระบบ" });
+  }
+});
 
 export default router;
