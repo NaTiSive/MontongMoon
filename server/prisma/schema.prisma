@@ -8,16 +8,16 @@ datasource db {
 }
 
 enum AccountPaymentMethod {
-  cash        @map("เงินสด")
+  cash         @map("เงินสด")
   bankTransfer @map("โอนเงิน")
-  creditCard  @map("บัตรเครดิต")
-  other       @map("อื่นๆ")
+  creditCard   @map("บัตรเครดิต")
+  other        @map("อื่นๆ")
 }
 
 enum AccountStatus {
-  pending   @map("รอการตรวจสอบ")
-  approved  @map("อนุมัติ")
-  rejected  @map("ปฏิเสธ")
+  pending  @map("รอการตรวจสอบ")
+  approved @map("อนุมัติ")
+  rejected @map("ปฏิเสธ")
 }
 
 enum AccountType {
@@ -45,10 +45,10 @@ enum ContractStatus {
 }
 
 enum PaymentTerm {
-  cash        @map("เงินสด")
+  cash         @map("เงินสด")
   bankTransfer @map("โอนเงิน")
-  installment @map("ผ่อนชำระ")
-  other       @map("อื่นๆ")
+  installment  @map("ผ่อนชำระ")
+  other        @map("อื่นๆ")
 }
 
 enum FruitGrade {
@@ -74,13 +74,13 @@ enum ProblemScope {
 }
 
 enum ProblemState {
-  pending   @map("รอพบปัญหา")
+  pending    @map("รอพบปัญหา")
   inProgress @map("รอการแก้ไข")
-  resolved  @map("แก้ไขแล้ว")
+  resolved   @map("แก้ไขแล้ว")
 }
 
 enum TreeStatus {
-  normal   @map("ปกติ")
+  normal    @map("ปกติ")
   flowering @map("ออกดอก")
   fruiting  @map("ออกผล")
 }
@@ -93,13 +93,13 @@ enum ExportRequestStatus {
 }
 
 model Owner {
-  ownerId                 Int       @id @map("owner_id")
-  ownerName               String    @map("owner_name")
-  phone                   String    @map("phone") @db.Char(10)
-  address                 String?   @map("address")
-  email                   String    @unique @map("email")
-  password                String    @map("password")
-  currentDeadlineDate     DateTime? @map("current_deadline_date") @db.Date
+  ownerId                  Int       @id @map("owner_id")
+  ownerName                String    @map("owner_name")
+  phone                    String    @map("phone") @db.Char(10)
+  address                  String?   @map("address")
+  email                    String    @unique @map("email")
+  password                 String    @map("password")
+  currentDeadlineDate      DateTime? @map("current_deadline_date") @db.Date
   lastModifiedDeadlineDate DateTime? @map("last_modified_deadline_date") @db.Date
 
   accounts   Account[]
@@ -121,12 +121,12 @@ model Broker {
   password         String    @map("password")
   registrationDate DateTime? @map("registration_date") @db.Date
 
-  accounts   Account[]
-  activities Activity[]
-  contracts  Contract[]
-  fruits     DurianFruit[]
-  problems   Problem[]
-  trees      DurianTree[]
+  accounts       Account[]
+  activities     Activity[]
+  contracts      Contract[]
+  fruits         DurianFruit[]
+  problems       Problem[]
+  trees          DurianTree[]
   exportRequests ExportRequest[]
 
   @@unique([password])
@@ -134,16 +134,16 @@ model Broker {
 }
 
 model Account {
-  accountId     String              @id @map("account_id")
-  ownerId       Int                 @map("owner_id")
-  brokerId      String?             @map("broker_id")
+  accountId     String               @id @map("account_id")
+  ownerId       Int                  @map("owner_id")
+  brokerId      String?              @map("broker_id")
   paymentMethod AccountPaymentMethod @map("payment_method")
-  date          DateTime            @map("date") @db.Date
-  status        AccountStatus       @map("status")
-  type          AccountType         @map("type")
-  invoiceRef    String?             @map("invoice_ref") @db.Text
-  amount        Decimal             @map("amount") @db.Decimal(12, 2)
-  note          String?             @map("note") @db.VarChar(1000)
+  date          DateTime             @map("date") @db.Date
+  status        AccountStatus        @map("status")
+  type          AccountType          @map("type")
+  invoiceRef    String?              @map("invoice_ref") @db.Text
+  amount        Decimal              @map("amount") @db.Decimal(12, 2)
+  note          String?              @map("note") @db.VarChar(1000)
 
   owner  Owner   @relation(fields: [ownerId], references: [ownerId])
   broker Broker? @relation(fields: [brokerId], references: [brokerId])
@@ -154,15 +154,15 @@ model Account {
 }
 
 model ExportRequest {
-  id        String              @id @map("id") @default(uuid())
-  brokerId  String              @map("broker_id")
-  status    ExportRequestStatus @map("status") @default(pending)
-  gradeA    Decimal             @map("grade_a") @db.Decimal(12, 2)
-  gradeB    Decimal             @map("grade_b") @db.Decimal(12, 2)
-  gradeC    Decimal             @map("grade_c") @db.Decimal(12, 2)
-  reservedFruits String?        @map("reserved_fruits") @db.Text
-  createdAt DateTime            @map("created_at") @default(now())
-  updatedAt DateTime            @map("updated_at") @updatedAt
+  id             String              @id @default(uuid()) @map("id")
+  brokerId       String              @map("broker_id")
+  status         ExportRequestStatus @default(pending) @map("status")
+  gradeA         Decimal             @map("grade_a") @db.Decimal(12, 2)
+  gradeB         Decimal             @map("grade_b") @db.Decimal(12, 2)
+  gradeC         Decimal             @map("grade_c") @db.Decimal(12, 2)
+  reservedFruits String?             @map("reserved_fruits") @db.Text
+  createdAt      DateTime            @default(now()) @map("created_at")
+  updatedAt      DateTime            @updatedAt @map("updated_at")
 
   broker Broker @relation(fields: [brokerId], references: [brokerId])
 
@@ -173,14 +173,17 @@ model Activity {
   activityId   String           @id @map("activity_id")
   brokerId     String           @map("broker_id")
   ownerId      Int              @map("owner_id")
+  treeId       String           @map("tree_id")
   date         DateTime         @map("date") @db.Date
   type         ActivityScope    @map("type")
   activityType ActivityCategory @map("activity_type")
   note         String?          @map("note") @db.VarChar(1000)
 
-  owner  Owner  @relation(fields: [ownerId], references: [ownerId])
-  broker Broker @relation(fields: [brokerId], references: [brokerId])
+  owner  Owner      @relation(fields: [ownerId], references: [ownerId])
+  broker Broker     @relation(fields: [brokerId], references: [brokerId])
+  tree   DurianTree @relation(fields: [treeId], references: [treeId])
 
+  @@index([treeId], name: "idx_activity_tree")
   @@index([brokerId], name: "idx_activity_broker")
   @@index([date], name: "idx_activity_date")
   @@map("activity")
@@ -197,9 +200,9 @@ model Contract {
   paymentTerm  PaymentTerm    @map("payment_term")
   note         String?        @map("note") @db.VarChar(1000)
 
-  owner   Owner   @relation(fields: [ownerId], references: [ownerId])
-  broker  Broker  @relation(fields: [brokerId], references: [brokerId])
-  prices  ContractPrice[]
+  owner  Owner           @relation(fields: [ownerId], references: [ownerId])
+  broker Broker          @relation(fields: [brokerId], references: [brokerId])
+  prices ContractPrice[]
 
   @@index([ownerId], name: "fk_contract_owner")
   @@index([brokerId], name: "idx_contract_broker")
@@ -234,9 +237,9 @@ model DurianFruit {
   type     FruitFlowType @map("type")
   date     DateTime      @map("date") @db.Date
 
-  owner  Owner        @relation(fields: [ownerId], references: [ownerId])
-  broker Broker?      @relation(fields: [brokerId], references: [brokerId])
-  tree   DurianTree   @relation(fields: [treeId], references: [treeId])
+  owner  Owner      @relation(fields: [ownerId], references: [ownerId])
+  broker Broker?    @relation(fields: [brokerId], references: [brokerId])
+  tree   DurianTree @relation(fields: [treeId], references: [treeId])
 
   @@index([treeId], name: "idx_fruit_tree")
   @@index([brokerId], name: "idx_fruit_broker")
@@ -250,24 +253,25 @@ model DurianTree {
   brokerId String?    @map("broker_id")
   status   TreeStatus @map("status")
 
-  owner  Owner   @relation(fields: [ownerId], references: [ownerId])
-  broker Broker? @relation(fields: [brokerId], references: [brokerId])
-  fruits DurianFruit[]
-  problems Problem[]
+  owner      Owner         @relation(fields: [ownerId], references: [ownerId])
+  broker     Broker?       @relation(fields: [brokerId], references: [brokerId])
+  fruits     DurianFruit[]
+  problems   Problem[]
+  activities Activity[]
 
   @@index([brokerId], name: "idx_tree_broker")
   @@map("durian_tree")
 }
 
 model Problem {
-  problemId String        @id @map("problem_id")
-  treeId    String        @map("tree_id")
-  brokerId  String        @map("broker_id")
-  ownerId   Int           @map("owner_id")
-  type      ProblemScope  @map("type")
+  problemId  String       @id @map("problem_id")
+  treeId     String       @map("tree_id")
+  brokerId   String       @map("broker_id")
+  ownerId    Int          @map("owner_id")
+  type       ProblemScope @map("type")
   noteBroker String?      @map("note_broker") @db.VarChar(2000)
   noteOwner  String?      @map("note_owner") @db.VarChar(2000)
-  status    ProblemState  @map("status")
+  status     ProblemState @map("status")
 
   owner  Owner      @relation(fields: [ownerId], references: [ownerId])
   broker Broker     @relation(fields: [brokerId], references: [brokerId])
@@ -279,8 +283,8 @@ model Problem {
 }
 
 model AcceptedBroker {
-  ownerId   Int     @map("owner_id")
-  brokerId  String  @map("broker_id")
+  ownerId    Int    @map("owner_id")
+  brokerId   String @map("broker_id")
   contractId String @map("contract_id")
 
   @@id([ownerId, brokerId])
