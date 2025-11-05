@@ -90,13 +90,13 @@ router.post("/", authenticate(), requireRole("broker"), async (req, res) => {
   // ประเภทปัญหา (ค่าเริ่มต้นให้เป็น "ภาพรวม" ถ้าไม่ระบุ)
   const type = parsed.data.type || "ภาพรวม";
 
-  // tree_id ใน schema ปัจจุบัน NOT NULL → ถ้าเป็นภาพรวมแล้วไม่ได้ส่งมา ให้ fallback เป็น T-001
+  // tree_id ใน schema ปัจจุบัน NOT NULL → ถ้าเป็นภาพรวมแล้วไม่ได้ส่งมา ให้ fallback เป็น -
   const treeId =
     type === "รายต้น"
       ? (parsed.data.tree_id || "").trim()
-      : (parsed.data.tree_id || "T-001");
+      : "-";
 
-  if (!treeId) {
+  if (!treeId.trim()) {
     return res.status(400).json({ message: "กรุณาเลือกต้นทุเรียน" });
   }
 
