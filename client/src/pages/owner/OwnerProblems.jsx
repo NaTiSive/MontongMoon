@@ -47,23 +47,23 @@ export default function OwnerProblems() {
     };
   }, []);
 
-  // แยกประเภทจาก description ที่ broker ใส่ prefix ไว้ เช่น "[รายต้น] ใบไหม้..."
+  // รองรับทั้งกรณีใหม่ (มี p.type) และเก่า (มี prefix ใน description)
   const parseType = (desc = "") => {
     if (desc.startsWith("[รายต้น]")) return "รายต้น";
-    if (desc.startsWith("[ทั้งสวน]") || desc.startsWith("[ภาพรวม]")) return "ทั้งสวน";
+    if (desc.startsWith("[ทั้งสวน]") || desc.startsWith("[ภาพรวม]"))
+      return "ภาพรวม";
     return "-";
   };
+  const getType = (p) => p.type || parseType(p.description || "");
   const stripTypePrefix = (desc = "") =>
     String(desc).replace(/^\[(รายต้น|ทั้งสวน|ภาพรวม)\]\s*/u, "");
 
   const filtered = useMemo(() => {
     const k = q.trim().toLowerCase();
     return rows.filter((p) => {
-      const text = `${p.id} ${p.tree_id ?? ""} ${p.description ?? ""} ${
-        p.owner_note ?? ""
-      } ${p.status ?? ""}`.toLowerCase();
+      const text = `${p.id} ${p.tree_id ?? ""} ${p.description ?? ""} ${p.owner_note ?? ""} ${p.status ?? ""} ${getType(p)}`.toLowerCase();
       const hitQ = k ? text.includes(k) : true;
-      const tp = parseType(p.description);
+      const tp = getType(p);
       const hitType = typeFilter ? tp === typeFilter : true;
       return hitQ && hitType;
     });
@@ -133,7 +133,9 @@ export default function OwnerProblems() {
             <Card>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div className="md:col-span-2">
-                  <label className="block text-sm text-slate-600 mb-1">ค้นหา</label>
+                  <label className="block text-sm text-slate-600 mb-1">
+                    ค้นหา
+                  </label>
                   <input
                     value={q}
                     onChange={(e) => setQ(e.target.value)}
@@ -142,7 +144,9 @@ export default function OwnerProblems() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm text-slate-600 mb-1">ประเภท</label>
+                  <label className="block text-sm text-slate-600 mb-1">
+                    ประเภท
+                  </label>
                   <select
                     value={typeFilter}
                     onChange={(e) => setTypeFilter(e.target.value)}
@@ -150,7 +154,7 @@ export default function OwnerProblems() {
                   >
                     <option value="">ทั้งหมด</option>
                     <option value="รายต้น">รายต้น</option>
-                    <option value="ทั้งสวน">ทั้งสวน</option>
+                    <option value="ภาพรวม">ภาพรวม</option>
                   </select>
                 </div>
               </div>
@@ -183,13 +187,15 @@ export default function OwnerProblems() {
                       {filtered.map((p, i) => (
                         <tr
                           key={p.id}
-                          className={i % 2 === 0 ? "bg-white" : "bg-slate-50/60"}
+                          className={
+                            i % 2 === 0 ? "bg-white" : "bg-slate-50/60"
+                          }
                         >
                           <td className="py-2 px-3">{p.id.slice(0, 8)}</td>
-                          <td className="py-2 px-3">{parseType(p.description)}</td>
+                          <td className="py-2 px-3">{getType(p)}</td>
                           <td className="py-2 px-3">{p.tree_id || "-"}</td>
                           <td className="py-2 px-3">
-                            {stripTypePrefix(p.description)}
+                            {stripTypePrefix(p.description || p.note_broker || "")}
                           </td>
                           <td className="py-2 px-3">{badge(p.status)}</td>
                           <td className="py-2 px-3">
