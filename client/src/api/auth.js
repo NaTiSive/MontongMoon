@@ -27,6 +27,21 @@ export async function fetchCurrentUser() {
   }
 }
 
+export async function updateProfile(payload) {
+  // payload: { name?, phone?, address?, password? }
+  const data = await request("/auth/me", {
+    method: "PATCH",
+    body: payload,
+  });
+  // sync user ใหม่เข้า storage
+  const auth = getStoredAuth();
+  setStoredAuth({ token: auth?.token, user: data.user });
+  return data.user;
+}
+
+
 export function logout() {
   clearStoredAuth();
 }
+
+
