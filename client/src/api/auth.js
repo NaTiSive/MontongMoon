@@ -9,16 +9,11 @@ export async function login({ email, password, role }) {
   return data;
 }
 
+// ✅ สมัครแบบเวอร์ชันก่อนหน้า: POST /auth/signup + body { name, phone, email, address, password }
 export async function signupBroker({ name, phone, email, address, password }) {
-  return request("/auth/signupBroker", {                 // ✅ เปลี่ยน path
+  return request("/auth/signup", {
     method: "POST",
-    body: {
-      brokerName: name,                                  // ✅ map ให้ตรง schema
-      phone,                                             // ต้องยาว 10 ตัว
-      email,
-      address,
-      password,
-    },
+    body: { name, phone, email, address, password },
   });
 }
 
@@ -42,15 +37,11 @@ export async function updateProfile(payload) {
     method: "PATCH",
     body: payload,
   });
-  // sync user ใหม่เข้า storage
   const auth = getStoredAuth();
   setStoredAuth({ token: auth?.token, user: data.user });
   return data.user;
 }
 
-
 export function logout() {
   clearStoredAuth();
 }
-
-
