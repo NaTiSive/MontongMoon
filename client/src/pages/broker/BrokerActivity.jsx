@@ -75,43 +75,48 @@ export default function BrokerActivity() {
     return "ปกติ";
   };
 
-  const add = async () => {
-    if (disabled) return;
-    if (!form.tree_id) return alert("กรุณาเลือกต้นไม้");
-    if (!form.type) return alert("กรุณาเลือกประเภทกิจกรรม");
+const add = async () => {
+  if (disabled) return;
+  if (!form.tree_id) return alert("กรุณาเลือกต้นไม้");
+  if (!form.type) return alert("กรุณาเลือกประเภทกิจกรรม");
 
-    // create activity
-    try {
-      const rec = await createActivity({
-        broker_id: user?.broker_id,
-        tree_id: form.tree_id,
-        type: form.type,
-        note: form.note?.trim() || "",
-      });
-
-    // อัปเดตสถานะต้นไม้อัตโนมัติจากประเภทกิจกรรม
-      try {
-        const newStatus = deriveStatusFromType(form.type);
-        await updateTreeStatus(form.tree_id, newStatus);
-        setTrees(await listTrees());
-      } catch (e) {
-        console.error(e);
-        alert(e?.message || "อัปเดตสถานะต้นไม้ไม่สำเร็จ");
-      }
-
-    // อัปเดตตาราง
-      setRows((r) => [rec, ...r]);
-
-    // reset ฟอร์ม (คงประเภทกิจกรรมเดิมไว้ให้)
-    setForm({
-      tree_id: "",
-      type: form.type,
-      note: "",
+  try {
+    // ส่งให้ตรง schema ของ API
+    const rec = await createActivity({
+      tree_id: form.tree_id,
+      type: "รายต้น",                // <- scope (รายต้น|ภาพรวม)
+      activity_type: form.type,       // <- ชนิดกิจกรรม (ดูแลรักษา|ออกดอก|...)
+      note: form.note?.trim() || "",
+      date: new Date().toISOString(),
     });
+
+    // อัปเดตสถานะต้นไม้อัตโนมัติ
+    try {
+      const newStatus = deriveStatusFromType(form.type);
+      await updateTreeStatus(form.tree_id, newStatus);
+      setTrees(await listTrees());
     } catch (e) {
-      alert(e?.message || "บันทึกกิจกรรมไม่สำเร็จ");
+      console.error(e);
+      alert(e?.message || "อัปเดตสถานะต้นไม้ไม่สำเร็จ");
     }
-  };
+
+    // รองรับคีย์หลายแบบจาก backend
+    const normalize = (x) => ({
+      id: x.id || x.activity_id || x.activityId,
+      tree_id: x.tree_id ?? x.treeId ?? "",
+      type: x.activity_type ?? x.type,          // แสดงชนิดกิจกรรม
+      note: x.note ?? "",
+      created_at: x.created_at ?? x.date,       // เวลา
+    });
+
+    setRows((r) => [normalize(rec), ...r]);
+
+    setForm({ tree_id: "", type: form.type, note: "" });
+  } catch (e) {
+    alert(e?.message || "บันทึกกิจกรรมไม่สำเร็จ");
+  }
+};
+
 
   // ───────────────────────────
   // Filters + search

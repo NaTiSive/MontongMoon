@@ -10,10 +10,12 @@ export async function listActivitiesForOwner() {
   return res?.data ?? [];
 }
 
-export async function createActivity({ broker_id, tree_id, type, note }) {
+// src/api/activities.js
+export async function createActivity({ broker_id, tree_id, type, activity_type, note, date }) {
   const res = await request("/activities", {
     method: "POST",
-    body: { broker_id, tree_id, type, note },
+    body: { broker_id, tree_id, type, activity_type, note, date },
   });
   return res?.data;
 }
+
