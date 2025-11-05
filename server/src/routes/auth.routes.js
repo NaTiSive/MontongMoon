@@ -89,6 +89,7 @@ router.post("/signupBroker", async (req, res) => {
         address: data.address,
         email: data.email,
         password: await hashPassword(data.password),
+        registrationDate: new Date(),  
       },
     });
 

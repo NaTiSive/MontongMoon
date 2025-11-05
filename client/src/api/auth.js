@@ -9,8 +9,17 @@ export async function login({ email, password, role }) {
   return data;
 }
 
-export async function signupBroker(payload) {
-  return request("/auth/signup", { method: "POST", body: payload });
+export async function signupBroker({ name, phone, email, address, password }) {
+  return request("/auth/signupBroker", {                 // ✅ เปลี่ยน path
+    method: "POST",
+    body: {
+      brokerName: name,                                  // ✅ map ให้ตรง schema
+      phone,                                             // ต้องยาว 10 ตัว
+      email,
+      address,
+      password,
+    },
+  });
 }
 
 export async function fetchCurrentUser() {
