@@ -27,7 +27,6 @@ function normalizePaymentTerm(termRaw) {
 
 // ---- routes -------------------------------------------------
 
-// GET /contracts
 router.get("/", async (_req, res) => {
   try {
     const rows = await prisma.$queryRawUnsafe(`
@@ -36,12 +35,30 @@ router.get("/", async (_req, res) => {
         FROM contract
       ORDER BY contract_date DESC
     `);
-    res.json({ data: rows });
+
+    const data = rows.map(r => {
+      // offerprice เก็บแบบ "A=100,B=90,C=80"
+      let offerprice_by_grade = null;
+      if (r.offerprice) {
+        const map = {};
+        for (const p of String(r.offerprice).split(",")) {
+          const [k, v] = p.split("=");
+          if (k && v && ["A","B","C"].includes(k.trim())) {
+            map[k.trim()] = Number(v);
+          }
+        }
+        if (Object.keys(map).length) offerprice_by_grade = map;
+      }
+      return { ...r, offerprice_by_grade };
+    });
+
+    res.json({ data });
   } catch (err) {
     console.error("❌ GET /contracts error:", err);
     res.status(500).json({ message: "Server error" });
   }
 });
+
 
 // POST /contracts  -> สร้าง contract + 3 แถวใน contract_price (A/B/C)
 router.post("/", async (req, res) => {
@@ -133,14 +150,17 @@ router.post("/:id/approve", async (req, res) => {
     const brokerId = c.broker_id;
 
     await prisma.$transaction(async (tx) => {
+      // ยกเลิกข้อเสนออื่นในรอบเดียวกันของ owner เดียวกันให้เป็น 'รอการพิจารณา'
       await tx.$executeRawUnsafe(
         `UPDATE contract SET status = 'รอการพิจารณา' WHERE owner_id = ?`,
         ownerId
       );
+      // อนุมัติสัญญาที่เลือก
       await tx.$executeRawUnsafe(
-        `UPDATE contract SET status = 'ยอมรับ', approved_at = NOW() WHERE contract_id = ?`,
+        `UPDATE contract SET status = 'ยอมรับ' WHERE contract_id = ?`,
         id
       );
+      // ผูก broker ให้กับต้นไม้และผลทุเรียนของ owner นี้
       await tx.$executeRawUnsafe(
         `UPDATE durian_tree SET broker_id = ? WHERE owner_id = ?`,
         brokerId, ownerId
@@ -157,6 +177,7 @@ router.post("/:id/approve", async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 });
+
 
 // POST /contracts/:id/reject
 router.post("/:id/reject", async (req, res) => {
