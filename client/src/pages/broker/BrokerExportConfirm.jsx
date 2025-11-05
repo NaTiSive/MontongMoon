@@ -8,7 +8,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 
 import {
-  getAvailableStockByGrade,
+  getBrokerStockWithPrices,
   submitExportRequest,
   listBrokerExportRequests,
   withdrawExportRequest,
@@ -19,7 +19,11 @@ export default function BrokerExportConfirm() {
   const navigate = useNavigate();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [err, setErr] = useState("");
-  const [stock, setStock] = useState({ A:0, B:0, C:0 });
+  const [stock, setStock] = useState({
+    A: { amount: 0, price: 0, value: 0 },
+    B: { amount: 0, price: 0, value: 0 },
+    C: { amount: 0, price: 0, value: 0 },
+  });
   const [history, setHistory] = useState([]);
 
   useEffect(() => {
@@ -31,10 +35,10 @@ export default function BrokerExportConfirm() {
   const reload = async () => {
     try {
       const [s, h] = await Promise.all([
-        getAvailableStockByGrade({ broker_id: brokerId }),
+        getBrokerStockWithPrices(brokerId),
         listBrokerExportRequests(brokerId),
       ]);
-      setStock(s);
+      setStock(s || {});
       setHistory(h);
       setErr("");
     } catch (e) {
@@ -46,7 +50,14 @@ export default function BrokerExportConfirm() {
     reload();
   }, [brokerId]);
 
-  const sum = stock.A + stock.B + stock.C;
+  const sum =
+    Number(stock?.A?.amount || 0) +
+    Number(stock?.B?.amount || 0) +
+    Number(stock?.C?.amount || 0);
+  const totalValue =
+    Number(stock?.A?.value || 0) +
+    Number(stock?.B?.value || 0) +
+    Number(stock?.C?.value || 0);
 
   const send = async () => {
     try {
@@ -72,13 +83,20 @@ export default function BrokerExportConfirm() {
 
   const fmtDT = (iso) => new Date(iso).toLocaleString("th-TH");
   const badge = (st) =>
-    st === "รอการยืนยันจากเจ้าของสวน" ? "bg-amber-100 text-amber-700"
-    : st === "ยืนยันแล้ว" ? "bg-emerald-100 text-emerald-700"
-    : st === "ปฏิเสธแล้ว" ? "bg-rose-100 text-rose-700"
-    : "bg-slate-100 text-slate-700";
+    st === "รอการยืนยันจากเจ้าของสวน"
+      ? "bg-amber-100 text-amber-700"
+      : st === "ยืนยันแล้ว"
+      ? "bg-emerald-100 text-emerald-700"
+      : st === "ปฏิเสธแล้ว"
+      ? "bg-rose-100 text-rose-700"
+      : "bg-slate-100 text-slate-700";
 
   return (
-    <div className={`min-h-screen w-full bg-slate-50 text-slate-900 flex flex-col md:flex-row ${isSidebarOpen ? "overflow-hidden md:overflow-auto" : ""}`}>
+    <div
+      className={`min-h-screen w-full bg-slate-50 text-slate-900 flex flex-col md:flex-row ${
+        isSidebarOpen ? "overflow-hidden md:overflow-auto" : ""
+      }`}
+    >
       <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
       <div className="flex-1 min-w-0 flex flex-col">
         <HeaderWrapper
@@ -94,19 +112,57 @@ export default function BrokerExportConfirm() {
             {/* พร้อมส่งออก */}
             <Card>
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                <Stat label="พร้อมส่งออก A (กก.)" value={stock.A} />
-                <Stat label="พร้อมส่งออก B (กก.)" value={stock.B} />
-                <Stat label="พร้อมส่งออก C (กก.)" value={stock.C} />
-                <Stat label="รวม (กก.)" value={sum} />
+                <Stat
+                  label="เกรด A (กก.)"
+                  value={Number(stock?.A?.amount || 0)}
+                  sub={`ราคา ${Number(stock?.A?.price || 0).toLocaleString(
+                    "th-TH"
+                  )} บ./กก.`}
+                  foot={`≈ ${Number(stock?.A?.value || 0).toLocaleString(
+                    "th-TH"
+                  )} บาท`}
+                />
+                <Stat
+                  label="เกรด B (กก.)"
+                  value={Number(stock?.B?.amount || 0)}
+                  sub={`ราคา ${Number(stock?.B?.price || 0).toLocaleString(
+                    "th-TH"
+                  )} บ./กก.`}
+                  foot={`≈ ${Number(stock?.B?.value || 0).toLocaleString(
+                    "th-TH"
+                  )} บาท`}
+                />
+                <Stat
+                  label="เกรด C (กก.)"
+                  value={Number(stock?.C?.amount || 0)}
+                  sub={`ราคา ${Number(stock?.C?.price || 0).toLocaleString(
+                    "th-TH"
+                  )} บ./กก.`}
+                  foot={`≈ ${Number(stock?.C?.value || 0).toLocaleString(
+                    "th-TH"
+                  )} บาท`}
+                />
+                <Stat
+                  label="รวม (กก.)"
+                  value={sum}
+                  sub={`มูลค่ารวมโดยประมาณ`}
+                  foot={`≈ ${totalValue.toLocaleString("th-TH")} บาท`}
+                />
               </div>
               <div className="mt-3 flex justify-end">
-                <PrimaryButton title="ส่งให้เจ้าของสวนพิจารณา" onClick={send} disabled={sum <= 0} />
+                <PrimaryButton
+                  title="ส่งให้เจ้าของสวนพิจารณา"
+                  onClick={send}
+                  disabled={sum <= 0}
+                />
               </div>
             </Card>
 
             {/* ประวัติคำขอ */}
             <Card>
-              <div className="text-sm text-slate-700 mb-2">ประวัติคำขอส่งออก (ของฉัน)</div>
+              <div className="text-sm text-slate-700 mb-2">
+                ประวัติคำขอส่งออก (ของฉัน)
+              </div>
               <div className="overflow-x-auto rounded-lg border bg-white shadow-sm">
                 <table className="min-w-full text-sm">
                   <thead>
@@ -122,28 +178,52 @@ export default function BrokerExportConfirm() {
                   </thead>
                   <tbody>
                     {history.length === 0 ? (
-                      <tr><td className="py-3 px-3" colSpan={7}>ยังไม่มีคำขอ</td></tr>
-                    ) : history.map((r, i) => {
-                      const a = Number(r.grades.A||0), b = Number(r.grades.B||0), c = Number(r.grades.C||0);
-                      const s = a+b+c;
-                      return (
-                        <tr key={r.id} className={i%2===0 ? "bg-white" : "bg-slate-50/60"}>
-                          <td className="py-2 px-3">{fmtDT(r.created_at)}</td>
-                          <td className="py-2 px-3">{a}</td>
-                          <td className="py-2 px-3">{b}</td>
-                          <td className="py-2 px-3">{c}</td>
-                          <td className="py-2 px-3">{s}</td>
-                          <td className="py-2 px-3"><span className={`px-2 py-0.5 rounded ${badge(r.status)}`}>{r.status}</span></td>
-                          <td className="py-2 px-3">
-                            {r.status === "รอการยืนยันจากเจ้าของสวน" && (
-                              <button onClick={() => withdraw(r.id)} className="text-sm px-3 py-1.5 rounded bg-slate-200 hover:bg-slate-300">
-                                ยกเลิกคำขอ
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
+                      <tr>
+                        <td className="py-3 px-3" colSpan={7}>
+                          ยังไม่มีคำขอ
+                        </td>
+                      </tr>
+                    ) : (
+                      history.map((r, i) => {
+                        const a = Number(r.grades.A || 0),
+                          b = Number(r.grades.B || 0),
+                          c = Number(r.grades.C || 0);
+                        const s = a + b + c;
+                        return (
+                          <tr
+                            key={r.id}
+                            className={
+                              i % 2 === 0 ? "bg-white" : "bg-slate-50/60"
+                            }
+                          >
+                            <td className="py-2 px-3">{fmtDT(r.created_at)}</td>
+                            <td className="py-2 px-3">{a}</td>
+                            <td className="py-2 px-3">{b}</td>
+                            <td className="py-2 px-3">{c}</td>
+                            <td className="py-2 px-3">{s}</td>
+                            <td className="py-2 px-3">
+                              <span
+                                className={`px-2 py-0.5 rounded ${badge(
+                                  r.status
+                                )}`}
+                              >
+                                {r.status}
+                              </span>
+                            </td>
+                            <td className="py-2 px-3">
+                              {r.status === "รอการยืนยันจากเจ้าของสวน" && (
+                                <button
+                                  onClick={() => withdraw(r.id)}
+                                  className="text-sm px-3 py-1.5 rounded bg-slate-200 hover:bg-slate-300"
+                                >
+                                  ยกเลิกคำขอ
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -155,11 +235,15 @@ export default function BrokerExportConfirm() {
   );
 }
 
-function Stat({ label, value }) {
+function Stat({ label, value, sub, foot }) {
   return (
     <div className="rounded-xl border bg-white p-4">
       <div className="text-xs text-slate-500">{label}</div>
-      <div className="text-2xl font-semibold">{Number(value||0).toLocaleString("th-TH")}</div>
+      <div className="text-2xl font-semibold">
+        {Number(value || 0).toLocaleString("th-TH")}
+      </div>
+      {sub && <div className="text-xs text-slate-500 mt-1">{sub}</div>}
+      {foot && <div className="text-xs text-slate-600 mt-0.5">{foot}</div>}
     </div>
   );
 }

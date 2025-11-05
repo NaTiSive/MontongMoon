@@ -16,6 +16,27 @@ export async function getAvailableStockByGrade({ broker_id = null } = {}) {
   };
 }
 
+// --- ใส่เพิ่มใต้ getAvailableStockByGrade() ---
+export async function getGradePricesByBroker(broker_id) {
+  const query = broker_id ? `?broker_id=${broker_id}` : "";
+  const res = await request(`/export/stock${query}`);
+  const stock = res?.stock || {};
+  return {
+    A: Number(stock?.A?.price ?? 0),
+    B: Number(stock?.B?.price ?? 0),
+    C: Number(stock?.C?.price ?? 0),
+  };
+}
+
+// ทางเลือก (ถ้าหน้า broker อยากได้พร้อมกันทั้ง amount+price+value)
+export async function getBrokerStockWithPrices(broker_id) {
+  const query = broker_id ? `?broker_id=${broker_id}` : "";
+  const res = await request(`/export/stock${query}`);
+  // คืนทั้งก้อน เช่น { A:{amount,price,value}, B:{...}, C:{...} }
+  return res?.stock || { A:{}, B:{}, C:{} };
+}
+
+
 
 export async function submitExportRequest({ broker_id, grades }) {
   const res = await request("/export/requests", {

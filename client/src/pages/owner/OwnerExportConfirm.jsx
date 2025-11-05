@@ -9,6 +9,7 @@ import {
   listAllExportRequests,
   ownerApproveExportRequest,
   ownerRejectExportRequest,
+  getGradePricesByBroker,
 } from "../../api/export";
 
 export default function OwnerExportConfirm() {
@@ -18,6 +19,7 @@ export default function OwnerExportConfirm() {
   const [err, setErr] = useState("");
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [priceMap, setPriceMap] = useState({}); // { [broker_id]: {A:price, B:price, C:price} }
 
   useEffect(() => {
     if (!user || user.role !== "owner") navigate("/login");
@@ -31,6 +33,18 @@ export default function OwnerExportConfirm() {
         const all = await listAllExportRequests();
         if (!alive) return;
         setRequests(all);
+        const uniqBrokers = Array.from(
+          new Set((all || []).map((r) => r.broker_id).filter(Boolean))
+        );
+        const prices = {};
+        for (const bid of uniqBrokers) {
+          try {
+            prices[bid] = await getGradePricesByBroker(bid);
+          } catch {
+            prices[bid] = { A: 0, B: 0, C: 0 };
+          }
+        }
+        setPriceMap(prices);
         setErr("");
       } catch (e) {
         if (!alive) return;
@@ -44,6 +58,14 @@ export default function OwnerExportConfirm() {
       alive = false;
     };
   }, []);
+
+  const estValue = (r) => {
+  const p = priceMap[r.broker_id] || { A:0, B:0, C:0 };
+  const a = Number(r.grades?.A || r.gradeA || 0);
+  const b = Number(r.grades?.B || r.gradeB || 0);
+  const c = Number(r.grades?.C || r.gradeC || 0);
+  return (a*p.A + b*p.B + c*p.C);
+};
 
   const pending = useMemo(
     () => requests.filter((r) => r.status === "รอการยืนยันจากเจ้าของสวน"),
@@ -67,9 +89,7 @@ export default function OwnerExportConfirm() {
   const reject = async (reqId) => {
     try {
       const res = await ownerRejectExportRequest(reqId);
-      setRequests((prev) =>
-        prev.map((r) => (r.id === reqId ? res ?? r : r))
-      );
+      setRequests((prev) => prev.map((r) => (r.id === reqId ? res ?? r : r)));
     } catch (e) {
       setErr(e?.message || "ปฏิเสธไม่สำเร็จ");
     }
@@ -101,7 +121,9 @@ export default function OwnerExportConfirm() {
             {err && <Card className="text-rose-600">{err}</Card>}
 
             <Card>
-              <div className="text-sm text-slate-700 mb-2">คำขอที่รอการยืนยัน</div>
+              <div className="text-sm text-slate-700 mb-2">
+                คำขอที่รอการยืนยัน
+              </div>
               <div className="overflow-x-auto rounded-lg border bg-white shadow-sm">
                 <table className="min-w-full text-sm">
                   <thead>
@@ -111,6 +133,9 @@ export default function OwnerExportConfirm() {
                       <th className="py-2 px-3">A</th>
                       <th className="py-2 px-3">B</th>
                       <th className="py-2 px-3">C</th>
+                      <th className="py-2 px-3">ราคา A/B/C</th>
+                      <th className="py-2 px-3">มูลค่ารวม (บาท)</th>
+
                       <th className="py-2 px-3">รวม (กก.)</th>
                       <th className="py-2 px-3">สถานะ</th>
                       <th className="py-2 px-3">การกระทำ</th>
@@ -136,7 +161,24 @@ export default function OwnerExportConfirm() {
                           <td className="py-2 px-3">Broker #{r.broker_id}</td>
                           <td className="py-2 px-3">{r.grades.A}</td>
                           <td className="py-2 px-3">{r.grades.B}</td>
-                          <td className="py-2 px-3">{r.grades.C}</td>
+                          <td className="py-2 px-3">{r.grades.C}</td>+{" "}
+                          <td className="py-2 px-3">
+                            {(() => {
+                              const p = priceMap[r.broker_id] || {
+                                A: 0,
+                                B: 0,
+                                C: 0,
+                              };
+                              return `A ${p.A.toLocaleString(
+                                "th-TH"
+                              )} / B ${p.B.toLocaleString(
+                                "th-TH"
+                              )} / C ${p.C.toLocaleString("th-TH")}`;
+                            })()}
+                          </td>
+                          <td className="py-2 px-3">
+                            {estValue(r).toLocaleString("th-TH")}
+                          </td>
                           <td className="py-2 px-3">{r.grades.total}</td>
                           <td className="py-2 px-3">
                             <span className="px-3 py-1 rounded-lg bg-amber-100 text-amber-700 text-xs font-medium">
@@ -166,7 +208,9 @@ export default function OwnerExportConfirm() {
             </Card>
 
             <Card>
-              <div className="text-sm text-slate-700 mb-2">ประวัติคำขอทั้งหมด</div>
+              <div className="text-sm text-slate-700 mb-2">
+                ประวัติคำขอทั้งหมด
+              </div>
               <div className="overflow-x-auto rounded-lg border bg-white shadow-sm">
                 <table className="min-w-full text-sm">
                   <thead>
