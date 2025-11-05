@@ -89,23 +89,35 @@ router.get("/", authenticate(), async (req, res) => {
   try {
     const q = ListQuerySchema.parse(req.query ?? {});
     const where = {};
+    const role = String(req.user?.role || "").toLowerCase();
+    const sub = getAuthId(req.user);
 
-    // broker เห็นของตัวเองเป็นค่าเริ่มต้น
-    if (req.user?.role === "broker") {
-      where.brokerId = String(getAuthId(req.user));
+    // default filter by role (กันเคส sub เพี้ยน)
+    if (role === "broker" && sub) {
+      where.brokerId = String(sub);
+    } else if (role === "owner" && sub != null && !Number.isNaN(Number(sub))) {
+      where.ownerId = Number(sub);
     }
+
+    // optional overrides from query (เฉพาะที่มีค่าเท่านั้น)
     if (q.broker_id) where.brokerId = String(q.broker_id);
-    if (q.owner_id != null) where.ownerId = Number(q.owner_id);
+    if (typeof q.owner_id === "number" && !Number.isNaN(q.owner_id)) {
+      where.ownerId = q.owner_id;
+    }
     if (q.tree_id) where.treeId = String(q.tree_id);
 
+    // date range (validate คร่าว ๆ)
     if (q.date_from || q.date_to) {
-      where.date = {};
-      if (q.date_from) where.date.gte = new Date(q.date_from);
-      if (q.date_to) {
+      const range = {};
+      if (q.date_from && !Number.isNaN(new Date(q.date_from).valueOf())) {
+        range.gte = new Date(q.date_from);
+      }
+      if (q.date_to && !Number.isNaN(new Date(q.date_to).valueOf())) {
         const to = new Date(q.date_to);
         to.setDate(to.getDate() + 1); // ครอบคลุมทั้งวัน
-        where.date.lt = to;
+        range.lt = to;
       }
+      if (Object.keys(range).length) where.date = range;
     }
 
     const rows = await prisma.activity.findMany({
@@ -113,13 +125,13 @@ router.get("/", authenticate(), async (req, res) => {
       orderBy: [{ date: "desc" }, { activityId: "desc" }],
     });
 
-    // จัดรูปคีย์ให้ฝั่ง FE ใช้งานตรงๆ
     const data = rows.map((r) => ({
       id: r.activityId,
       tree_id: r.treeId,
-      type: TYPE_ENUM_TO_THAI[r.activityType] ?? r.activityType, // แสดงไทย
+      type: TYPE_ENUM_TO_THAI[r.activityType] ?? r.activityType,
       note: r.note ?? "",
       created_at: r.date,
+      broker_id: r.brokerId, // สำหรับ OwnerActivities
     }));
 
     return res.json({ data });
@@ -131,8 +143,6 @@ router.get("/", authenticate(), async (req, res) => {
 
 /* ──────────────────────────────────────────────────────────────────────────
  * POST /api/activities (broker เท่านั้น)
- *   - สร้าง activity (บันทึก treeId)
- *   - อัปเดตสถานะ durian_tree ตามประเภทกิจกรรม
  * ────────────────────────────────────────────────────────────────────────── */
 
 router.post("/", authenticate(), requireRole("broker"), async (req, res) => {
@@ -158,7 +168,7 @@ router.post("/", authenticate(), requireRole("broker"), async (req, res) => {
           activityId,
           brokerId,
           ownerId: tree.ownerId,
-          treeId: tree.treeId, // ✅ เซฟ FK
+          treeId: tree.treeId,
           date: new Date(date || Date.now()),
           type: scopeEnum,
           activityType: typeEnum,
@@ -167,11 +177,10 @@ router.post("/", authenticate(), requireRole("broker"), async (req, res) => {
       }),
       prisma.durianTree.update({
         where: { treeId: tree.treeId },
-        data: { status: newStatus }, // ✅ เปลี่ยนสถานะต้นไม้
+        data: { status: newStatus },
       }),
     ]);
 
-    // ส่งออกคีย์ตามที่ FE ใช้
     return res.status(201).json({
       data: {
         id: created.activityId,
@@ -179,6 +188,7 @@ router.post("/", authenticate(), requireRole("broker"), async (req, res) => {
         type: TYPE_ENUM_TO_THAI[created.activityType] ?? created.activityType,
         note: created.note ?? "",
         created_at: created.date,
+        broker_id: created.brokerId,
       },
     });
   } catch (err) {
