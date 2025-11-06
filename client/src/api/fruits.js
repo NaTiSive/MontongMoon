@@ -10,7 +10,6 @@ export async function createHarvestFruitRecord(payload) {
       tree_id: payload?.tree_id,
       grade: payload?.grade,
       weight_kg: payload?.weight_kg,
-      note: payload?.note,
     },
   });
   return res?.data;

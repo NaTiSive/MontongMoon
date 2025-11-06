@@ -46,7 +46,7 @@ export default function BrokerHarvest() {
   const [gradeFilter, setGradeFilter] = useState("ทั้งหมด");
   const [treeFilter, setTreeFilter] = useState("ทั้งหมด");
   const [q, setQ] = useState("");
-  const [form, setForm] = useState({ tree_id: "", grade: "A", weight_kg: "", note: "" });
+  const [form, setForm] = useState({ tree_id: "", grade: "A", weight_kg: "" });
 
   // ✅ รองรับหลายชื่อ id ของ broker (backend บางจุด normalize ต่างกัน)
   const brokerId = user?.broker_id ?? user?.id ?? user?.brokerId ?? null;
@@ -130,7 +130,6 @@ export default function BrokerHarvest() {
         tree_id: form.tree_id,
         grade: form.grade,
         weight_kg: w,
-        note: form.note?.trim(),
       });
 
       setRows((prev) => [rec, ...prev]);
@@ -141,7 +140,7 @@ export default function BrokerHarvest() {
 
       const sum = await getHarvestSummary({ startISO, endISO, tree_id });
       setSummary(sum);
-      setForm((prev) => ({ ...prev, weight_kg: "", note: "" }));
+      setForm((prev) => ({ ...prev, weight_kg: "" }));
       alert("บันทึกผลผลิตเรียบร้อย");
     } catch (e) {
       alert(e?.message || "เกิดข้อผิดพลาดในการบันทึก");
@@ -158,7 +157,7 @@ export default function BrokerHarvest() {
     const k = q.trim().toLowerCase();
     if (!k) return list;
     return list.filter((x) =>
-      `${x.tree_id ?? ""} ${x.grade} ${x.note ?? ""}`.toLowerCase().includes(k)
+      `${x.tree_id ?? ""} ${x.grade}`.toLowerCase()
     );
   }, [rows, gradeFilter, treeFilter, q]);
 
@@ -247,17 +246,6 @@ export default function BrokerHarvest() {
                   />
                 </div>
 
-                <div className="md:col-span-2">
-                  <label className="block text-sm text-slate-600 mb-1">
-                    หมายเหตุ
-                  </label>
-                  <input
-                    value={form.note}
-                    onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))}
-                    className="w-full border rounded-lg px-3 py-2 bg-white"
-                    placeholder="เช่น แปลง B แถว 2"
-                  />
-                </div>
               </div>
 
               <button
@@ -369,7 +357,6 @@ export default function BrokerHarvest() {
                         <th className="py-2 px-3">เวลา</th>
                         <th className="py-2 px-3">เกรด</th>
                         <th className="py-2 px-3">น้ำหนัก (กก.)</th>
-                        <th className="py-2 px-3">หมายเหตุ</th>
                         <th className="py-2 px-3">#ไอดี</th>
                       </tr>
                     </thead>
@@ -386,7 +373,6 @@ export default function BrokerHarvest() {
                           <td className="py-2 px-3">
                             {Number(r.weight_kg).toLocaleString("th-TH")}
                           </td>
-                          <td className="py-2 px-3">{r.note || "-"}</td>
                           <td className="py-2 px-3 text-slate-500">
                             {r.id?.slice(0, 8)}
                           </td>
