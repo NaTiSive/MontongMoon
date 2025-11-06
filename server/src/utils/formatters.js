@@ -201,26 +201,44 @@ function sumGradesFromFruits(fruits = []) {
 
 export function mapExportRequest(req) {
   if (!req) return null;
+  const gradeAFallback = req.gradeA ?? req.grade_a;
+  const gradeBFallback = req.gradeB ?? req.grade_b;
+  const gradeCFallback = req.gradeC ?? req.grade_c;
+
   const totals =
     Array.isArray(req.fruits) && req.fruits.length > 0
       ? sumGradesFromFruits(req.fruits)
       : {
-          A: toNumber(req.gradeA),
-          B: toNumber(req.gradeB),
-          C: toNumber(req.gradeC),
+          A: toNumber(gradeAFallback),
+          B: toNumber(gradeBFallback),
+          C: toNumber(gradeCFallback),
         };
   const totalWeight = Number(totals.A + totals.B + totals.C);
+  const createdAt = req.createdAt ?? req.created_at;
+  const updatedAt = req.updatedAt ?? req.updated_at;
+
+  const brokerId = req.brokerId ?? req.broker_id ?? null;
+  const gradeA = Number(totals.A);
+  const gradeB = Number(totals.B);
+  const gradeC = Number(totals.C);
+  const total = Number(totalWeight);
+
   return {
     id: req.id,
-    broker_id: req.brokerId,
+    brokerId,
+    broker_id: brokerId,
     status: EXPORT_STATUS_LABELS[req.status] || req.status,
-    created_at: req.createdAt?.toISOString?.() ?? req.createdAt,
-    updated_at: req.updatedAt?.toISOString?.() ?? req.updatedAt,
+    created_at: createdAt?.toISOString?.() ?? createdAt,
+    updated_at: updatedAt?.toISOString?.() ?? updatedAt,
+    gradeA,
+    gradeB,
+    gradeC,
+    total,
     grades: {
-      A: Number(totals.A),
-      B: Number(totals.B),
-      C: Number(totals.C),
-      total: Number(totalWeight),
+      A: gradeA,
+      B: gradeB,
+      C: gradeC,
+      total,
     },
   };
 }

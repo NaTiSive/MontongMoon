@@ -160,8 +160,10 @@ export default function BrokerExportConfirm() {
                     {history.length === 0 ? (
                       <tr><td className="py-3 px-3" colSpan={7}>ยังไม่มีคำขอ</td></tr>
                     ) : history.map((r, i) => {
-                      const a = Number(r.grades.A||0), b = Number(r.grades.B||0), c = Number(r.grades.C||0);
-                      const s = a+b+c;
+                      const a = Number(r.grades?.A ?? r.gradeA ?? 0);
+                      const b = Number(r.grades?.B ?? r.gradeB ?? 0);
+                      const c = Number(r.grades?.C ?? r.gradeC ?? 0);
+                      const s = Number(r.grades?.total ?? r.total ?? a + b + c);
                       return (
                         <tr key={r.id} className={i%2===0 ? "bg-white" : "bg-slate-50/60"}>
                           <td className="py-2 px-3">{fmtDT(r.created_at)}</td>
