@@ -52,6 +52,11 @@ export default function OwnerTransactions() {
       timeStyle: "short",
     });
 
+  // ช่วยประกอบ URL ให้ชี้ไปที่ backend เสมอ
+  const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:4000/api";
+  const SERVER_ORIGIN = API_BASE.replace(/\/api\/?$/, "");
+  const toFileUrl = (u) => (u?.startsWith("/static") ? SERVER_ORIGIN + u : u);
+
   // กรอง/ค้นหา
   const [q, setQ] = useState("");
   const [typeFilter, setTypeFilter] = useState("ทั้งหมด");
@@ -282,7 +287,7 @@ export default function OwnerTransactions() {
                               <td className="py-2 px-3">
                                 {r.invoice_ref ? (
                                   <a
-                                    href={r.invoice_ref}
+                                    href={toFileUrl(r.invoice_ref)}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="text-emerald-700 underline"
