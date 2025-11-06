@@ -4,7 +4,7 @@ import { request } from "./http";
 /* ---------- Helpers ---------- */
 function toThaiStatus(s = "") {
   const k = String(s || "").toLowerCase().replace(/\s/g, "");
-  if (k === "open" || k === "เปิดปัญหา") return "เปิดปัญหา";
+  if (k === "open" || k === "เปิดปัญหา" || k === "พบปัญหา") return "พบปัญหา";
   if (
     k === "pending" ||
     k === "inprogress" ||
@@ -18,7 +18,7 @@ function toThaiStatus(s = "") {
   if (k === "resolved" || k === "done" || k === "closed" || k === "แก้ไขแล้ว" || k === "ปิด") {
     return "แก้ไขแล้ว";
   }
-  return "เปิดปัญหา";
+  return "พบปัญหา";
 }
 
 function parseTypeFromDesc(desc = "") {

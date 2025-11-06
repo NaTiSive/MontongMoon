@@ -61,7 +61,9 @@ export default function OwnerProblems() {
   const filtered = useMemo(() => {
     const k = q.trim().toLowerCase();
     return rows.filter((p) => {
-      const text = `${p.id} ${p.tree_id ?? ""} ${p.description ?? ""} ${p.owner_note ?? ""} ${p.status ?? ""} ${getType(p)}`.toLowerCase();
+      const text = `${p.id} ${p.tree_id ?? ""} ${p.description ?? ""} ${
+        p.owner_note ?? ""
+      } ${p.status ?? ""} ${getType(p)}`.toLowerCase();
       const hitQ = k ? text.includes(k) : true;
       const tp = getType(p);
       const hitType = typeFilter ? tp === typeFilter : true;
@@ -85,15 +87,18 @@ export default function OwnerProblems() {
   };
 
   const badge = (status) => {
+    const s = String(status);
     const cls =
-      status === "เปิดปัญหา"
-        ? "bg-rose-100 text-rose-700"
-        : status === "ระหว่างแก้ไข"
-        ? "bg-amber-100 text-amber-700"
-        : "bg-emerald-100 text-emerald-700";
+      s === "พบปัญหา"
+        ? "bg-rose-100 text-rose-700" // 🔴 สีแดงสำหรับ "พบปัญหา"
+        : s === "ระหว่างแก้ไข"
+        ? "bg-amber-100 text-amber-700" // 🟡 เหลืองระหว่างแก้
+        : s === "แก้ไขแล้ว"
+        ? "bg-emerald-100 text-emerald-700" // 🟢 เขียวแก้เสร็จ
+        : "bg-slate-200 text-slate-700"; // ค่าอื่นๆ (กันพลาด)
     return (
       <span className={`px-3 py-1 rounded-lg text-xs font-medium ${cls}`}>
-        {status}
+        {s}
       </span>
     );
   };
@@ -195,7 +200,9 @@ export default function OwnerProblems() {
                           <td className="py-2 px-3">{getType(p)}</td>
                           <td className="py-2 px-3">{p.tree_id || "-"}</td>
                           <td className="py-2 px-3">
-                            {stripTypePrefix(p.description || p.note_broker || "")}
+                            {stripTypePrefix(
+                              p.description || p.note_broker || ""
+                            )}
                           </td>
                           <td className="py-2 px-3">{badge(p.status)}</td>
                           <td className="py-2 px-3">
@@ -215,7 +222,7 @@ export default function OwnerProblems() {
                             {fmtDT(p.updated_at || p.created_at)}
                           </td>
                           <td className="py-2 px-3">
-                            {p.status === "เปิดปัญหา" ? (
+                            {p.status === "พบปัญหา" ? (
                               <button
                                 onClick={() => setPending(p.id)}
                                 className="px-3 py-1 rounded-lg text-white text-xs bg-amber-700 hover:bg-amber-800"

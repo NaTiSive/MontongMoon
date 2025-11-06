@@ -159,7 +159,7 @@ export default function BrokerReportProblem() {
 
   const badge = (status) => {
     const cls =
-      String(status) === "เปิดปัญหา"
+      String(status) === "พบปัญหา"
         ? "bg-rose-100 text-rose-700"
         : isPendingStatus(status)
         ? "bg-amber-100 text-amber-700"
@@ -343,7 +343,7 @@ export default function BrokerReportProblem() {
                 </div>
               )}
               <p className="text-xs text-slate-400 mt-2">
-                * สถานะเริ่มต้น: “เปิดปัญหา” → เจ้าของมอบหมายเป็น
+                * สถานะเริ่มต้น: “พบปัญหา” → เจ้าของมอบหมายเป็น
                 “รอการแก้ไข/ระหว่างแก้ไข” → นายหน้ายืนยันเป็น “แก้ไขแล้ว”
               </p>
             </Card>
