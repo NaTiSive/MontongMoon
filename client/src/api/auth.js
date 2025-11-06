@@ -42,6 +42,11 @@ export async function updateProfile(payload) {
   return data.user;
 }
 
+export async function fetchOwnerContact() {
+  // response: { contact: { name, phone, address, email } }
+  return request("/auth/owner-contact");
+}
+
 export function logout() {
   clearStoredAuth();
 }

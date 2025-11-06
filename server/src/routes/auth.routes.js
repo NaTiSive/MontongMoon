@@ -271,4 +271,28 @@ router.patch("/me", authenticate(), async (req, res) => {
   }
 });
 
+// GET /auth/owner-contact  (สาธารณะ)
+router.get("/owner-contact", async (req, res) => {
+  try {
+    // โปรเจกต์นี้ใช้ owner หลัก id=1 เป็นดีฟอลต์ในหลายตาราง
+    const owner = await prisma.owner.findFirst({
+      where: { ownerId: 1 },
+      select: { ownerName: true, phone: true, address: true, email: true },
+    });
+    if (!owner) return res.status(404).json({ message: "ไม่พบข้อมูลเจ้าของสวน" });
+
+    return res.json({
+      contact: {
+        name: owner.ownerName,
+        phone: owner.phone,
+        address: owner.address,
+        email: owner.email,
+      },
+    });
+  } catch (err) {
+    console.error("GET /auth/owner-contact error:", err);
+    return res.status(500).json({ message: "Failed to load contact" });
+  }
+});
+
 export default router;
