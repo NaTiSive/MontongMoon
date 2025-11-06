@@ -7,6 +7,9 @@ import { mapExportRequest, mapFruit, normalizeFruitFlowCode } from "../utils/for
 const router = Router();
 
 // ค่าที่ใช้ใน DB (ภาษาไทย)
+const ACC_TYPE_INCOME = "รายรับ";
+const ACC_STATUS_PENDING = "รอการตรวจสอบ";
+const ACC_PM_CASH = "เงินสด";
 const TYPE_HARVEST_PREFIX = "เก็บเกี่ยว";
 const TYPE_EXPORT = "ขนส่งออก";
 const GRADES = ["A", "B", "C"];
@@ -299,14 +302,15 @@ async function bookRevenue(tx, brokerId, contract, totals, reqId) {
            (account_id, owner_id, broker_id, type, amount, payment_method, note, invoice_ref, status, date)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         await nextAccountId(tx),
-        1, brokerId,
-        'income',
+        1,
+        brokerId,
+        ACC_TYPE_INCOME,  
         weight * price,
-        'bankTransfer',
+        ACC_PM_CASH,
         `รายรับจากส่งออก เกรด ${g} = ${weight} กก. x ${price} บาท/กก. (req ${String(reqId).slice(0,8)})`,
         `EXPORT-${String(reqId).slice(0,8)}-${g}`,
-        'pending',
-        new Date()
+        ACC_STATUS_PENDING,  
+        new Date()      
       );
     }
   }
