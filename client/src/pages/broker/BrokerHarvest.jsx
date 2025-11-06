@@ -53,7 +53,6 @@ export default function BrokerHarvest() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
-  const [summary, setSummary] = useState(() => createEmptySummary());
   const [trees, setTrees] = useState([]);
   const [loadingTrees, setLoadingTrees] = useState(true);
 
@@ -161,6 +160,8 @@ export default function BrokerHarvest() {
       alert(e?.message || "เกิดข้อผิดพลาดในการบันทึก");
     }
   };
+
+  const summary = useMemo(() => computeSummaryFromRows(rows), [rows]);
 
   // ─────────── ฟังก์ชันกรอง ───────────
   const filtered = useMemo(() => {

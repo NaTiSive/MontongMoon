@@ -7,6 +7,9 @@ import { useNavigate } from "react-router-dom";
 import { isApprovedStatus } from "../../utils/approval";
 import { createTransaction, listBrokerTransactions } from "../../api/accounts";
 import { uploadInvoice } from "../../api/uploads";
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:4000/api";
+const SERVER_ORIGIN = API_BASE.replace(/\/api\/?$/, "");
+const toFileUrl = (u) => (u && u.startsWith("/static") ? SERVER_ORIGIN + u : u);
 
 export default function BrokerTransaction() {
   const { user } = useAuth();
@@ -347,7 +350,7 @@ export default function BrokerTransaction() {
                           <td className="py-2 px-3">
                             {r.invoice_ref ? (
                               <a
-                                href={r.invoice_ref}
+                                href={toFileUrl(r.invoice_ref)}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="text-emerald-700 underline"
