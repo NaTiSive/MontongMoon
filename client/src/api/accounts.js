@@ -1,3 +1,4 @@
+// src/api/accounts.js
 import { request } from "./http";
 
 export async function createTransaction(broker_id, payload) {
@@ -7,8 +8,12 @@ export async function createTransaction(broker_id, payload) {
     amount: Number(payload?.amount),
     payment_method: payload?.payment_method,
     note: payload?.note,
-    receipt: payload?.receipt || null,
+    // ✅ เปลี่ยน receipt → invoice_ref และรองรับ dataURL ของไฟล์แนบ
+    invoice_ref:
+      payload?.invoice_ref ??
+      (payload?.receipt?.dataUrl || null),
   };
+
   const res = await request("/transactions", { method: "POST", body });
   return res?.data;
 }

@@ -36,7 +36,12 @@ router.get("/", authenticate(), async (req, res) => {
     orderBy: { date: "desc" },
   });
 
-  res.json({ data: transactions.map(mapTransaction) });
+  res.json({
+   data: transactions.map((t) => ({
+     ...mapTransaction(t),
+     invoice_ref: t.invoiceRef ?? null,   // ← ส่งเพิ่ม
+   })),
+ });
 });
 
 const createSchema = z.object({
@@ -79,7 +84,9 @@ router.post("/", authenticate(), requireRole("broker", "owner"), async (req, res
     },
   });
 
-  res.status(201).json({ data: mapTransaction(tx) });
+  res.status(201).json({
+   data: { ...mapTransaction(tx), invoice_ref: tx.invoiceRef ?? null },
+  });
 });
 
 router.patch("/:id/approve", authenticate(), requireRole("owner"), async (req, res) => {
@@ -88,7 +95,7 @@ router.patch("/:id/approve", authenticate(), requireRole("owner"), async (req, r
     where: { accountId: id },
     data: { status: "approved" },
   });
-  res.json({ data: mapTransaction(tx) });
+  res.json({ data: { ...mapTransaction(tx), invoice_ref: tx.invoiceRef ?? null } });
 });
 
 router.patch("/:id/reject", authenticate(), requireRole("owner"), async (req, res) => {
@@ -97,7 +104,7 @@ router.patch("/:id/reject", authenticate(), requireRole("owner"), async (req, re
     where: { accountId: id },
     data: { status: "rejected" },
   });
-  res.json({ data: mapTransaction(tx) });
+  res.json({ data: { ...mapTransaction(tx), invoice_ref: tx.invoiceRef ?? null } });
 });
 
 router.get("/summary/all", authenticate(), requireRole("owner"), async (req, res) => {
