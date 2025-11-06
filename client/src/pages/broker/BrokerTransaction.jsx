@@ -74,10 +74,7 @@ export default function BrokerTransaction() {
       // 1) ถ้ามีไฟล์ ให้ upload ก่อน
       let invoiceUrl = null;
       if (form.invoiceFile) {
-        const token =
-          localStorage.getItem("mm:token") ||
-          localStorage.getItem("token");
-        invoiceUrl = await uploadInvoice(form.invoiceFile, token);
+        invoiceUrl = await uploadInvoice(form.invoiceFile);
       }
       // 2) ส่ง URL ไปเก็บใน invoice_ref
       await createTransaction(user?.broker_id, {
