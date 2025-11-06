@@ -50,25 +50,48 @@ export default function BrokerExportConfirm() {
     reload();
   }, [brokerId]);
 
-  const sum =
-    Number(stock?.A?.amount || 0) +
-    Number(stock?.B?.amount || 0) +
-    Number(stock?.C?.amount || 0);
+  // แปลงตัวเลขให้ทนสตริงที่มีจุลภาค
+  const toNum = (x) => {
+    if (x == null) return 0;
+    if (typeof x === "number") return isFinite(x) ? x : 0;
+    const n = parseFloat(String(x).replace(/,/g, ""));
+    return isFinite(n) ? n : 0;
+  };
+
+  // อ่านจำนวนจาก stock ไม่ว่าจะเป็นแบบ object {amount,...} หรือเป็นตัวเลข
+  const getAmt = (g) => {
+    const node = stock?.[g];
+    return toNum(typeof node === "object" ? node?.amount : node);
+  };
+
+  const sum = getAmt("A") + getAmt("B") + getAmt("C");
+
   const totalValue =
     Number(stock?.A?.value || 0) +
     Number(stock?.B?.value || 0) +
     Number(stock?.C?.value || 0);
 
   const send = async () => {
+    // ดึงจำนวนจาก state stock รูปแบบใดก็ได้
+    const a = getAmt("A");
+    const b = getAmt("B");
+    const c = getAmt("C");
+    const total = a + b + c;
+    if (total <= 0) {
+      alert("น้ำหนักอย่างน้อยหนึ่งเกรดต้องมากกว่า 0");
+      return;
+    }
+
     try {
       await submitExportRequest({
-        broker_id: brokerId,
-        grades: { ...stock },
+        gradeA: a,
+        gradeB: b,
+        gradeC: c,
       });
-      alert("ส่งคำขอแล้ว");
       await reload();
+      alert("ส่งให้เจ้าของสวนพิจารณาแล้ว");
     } catch (e) {
-      setErr(e.message);
+      alert(e?.message || "ส่งคำขอไม่สำเร็จ");
     }
   };
 
