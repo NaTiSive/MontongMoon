@@ -44,15 +44,15 @@ const EMPTY_SUMMARY = Object.freeze(
   Object.fromEntries(GRADES.map((grade) => [grade, 0]))
 );
 
-export async function getHarvestSummary({ startISO, endISO, broker_id, tree_id } = {}) {
+export async function getHarvestStockSummary({ startISO, endISO, broker_id, tree_id } = {}) {
   const params = new URLSearchParams();
   if (startISO) params.append("start", startISO);
   if (endISO) params.append("end", endISO);
   if (broker_id) params.append("broker_id", broker_id);
   if (tree_id) params.append("tree_id", tree_id);
   const query = params.toString();
-  const res = await request(`/trees/harvest/summary${query ? `?${query}` : ""}`);
-  const summary = res?.summary ?? {};
+  const res = await request(`/fruits/harvest/stock${query ? `?${query}` : ""}`);
+  const summary = res?.stock ?? {};
   const byGrade = { ...EMPTY_SUMMARY };
   if (summary.by_grade) {
     for (const [key, value] of Object.entries(summary.by_grade)) {

@@ -1,20 +1,15 @@
+import { getStoredAuth } from "./http";
+
 const BASE = import.meta.env.VITE_API_URL || "http://localhost:4000/api";
 
 export async function uploadInvoice(file, tokenFromCaller) {
   const fd = new FormData();
   fd.append("invoice", file);
 
-  // ✅ ดึง token ให้ถูกต้อง (อ่านจาก mm:auth ซึ่งเก็บเป็น JSON)
+  // ✅ ดึง token จาก storage กลางของระบบ auth
   let token = tokenFromCaller || null;
   if (!token) {
-    const raw = localStorage.getItem("mm:auth");
-    if (raw) {
-      try {
-        token = JSON.parse(raw)?.token || null;
-      } catch {
-        token = null;
-      }
-    }
+    token = getStoredAuth()?.token || null;
   }
 
   const res = await fetch(`${BASE}/upload/invoice`, {

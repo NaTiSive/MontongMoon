@@ -56,10 +56,17 @@ export async function sumHarvestByGrade({ ownerId = 1, brokerId = null, treeId =
   return { sum_weight, by_grade: normalized };
 }
 
-export async function computeNetStockByGrade({ ownerId = 1, brokerId = null, start = null, end = null } = {}) {
+export async function computeNetStockByGrade({
+  ownerId = 1,
+  brokerId = null,
+  treeId = null,
+  start = null,
+  end = null,
+} = {}) {
   const where = {};
   if (ownerId != null) where.ownerId = ownerId;
   if (brokerId) where.brokerId = brokerId;
+  if (treeId) where.treeId = treeId;
   const dateFilter = buildDateFilter(start, end);
   if (dateFilter) where.date = dateFilter;
 
