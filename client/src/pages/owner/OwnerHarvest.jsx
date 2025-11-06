@@ -230,12 +230,12 @@ export default function OwnerHarvest() {
             {/* สรุปยอดรวม */}
             <Card>
               <PageHeader
-                title="สรุปรวม"
-                subtitle="น้ำหนักรวม (กก.) ตามเกรด"
+                title="สต็อกทุเรียนคงเหลือ"
+                subtitle="น้ำหนักผลผลิตที่ยังอยู่ในคลัง (กก.) จำแนกตามเกรด"
               />
               <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
                 <SummaryBox
-                  label="น้ำหนักรวมทั้งหมด"
+                  label="ปริมาณคงเหลือทั้งหมด"
                   value={summary.sum_weight.toLocaleString("th-TH")}
                   subtitle="กิโลกรัม"
                 />
@@ -299,7 +299,7 @@ export default function OwnerHarvest() {
                 </div>
               )}
               <p className="text-xs text-slate-400 mt-2">
-                * แสดงเฉพาะรายการเก็บเกี่ยว ไม่รวมการส่งออก
+                * ตารางแสดงเฉพาะประวัติการเก็บเกี่ยว ส่วนสรุปด้านบนคือผลผลิตที่ยังมีสถานะ "เก็บเกี่ยว" และพร้อมใช้งาน
               </p>
             </Card>
           </div>

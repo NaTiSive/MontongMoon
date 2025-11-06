@@ -7,8 +7,8 @@ import PrimaryButton from "../../components/PrimaryButton";
 import InputField from "../../components/InputField";
 import { useAuth } from "../../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
-import { createProcessingRecord, getDowngradedStock } from "../../api/processing";
-import { listProcessedFruits } from "../../api/fruits";
+import { createProcessingRecord } from "../../api/processing";
+import { getHarvestSummary, listProcessedFruits } from "../../api/fruits";
 
 export default function OwnerProcessing() {
   const { user } = useAuth();
@@ -31,12 +31,12 @@ export default function OwnerProcessing() {
       try {
         setLoadingStock(true);
         setLoadingProcessed(true);
-        const [stock, processed] = await Promise.all([
-          getDowngradedStock(),
+        const [summary, processed] = await Promise.all([
+          getHarvestSummary(),
           listProcessedFruits(),
         ]);
         if (!alive) return;
-        setDowngradedStock(stock);
+        setDowngradedStock(Number(summary?.by_grade?.["ตกเกรด"] ?? 0));
         setProcessedRows(processed);
         setErr("");
       } catch (e) {
@@ -66,11 +66,11 @@ export default function OwnerProcessing() {
     try {
       setLoadingStock(true);
       setLoadingProcessed(true);
-      const [stock, processed] = await Promise.all([
-        getDowngradedStock(),
+      const [summary, processed] = await Promise.all([
+        getHarvestSummary(),
         listProcessedFruits(),
       ]);
-      setDowngradedStock(stock);
+      setDowngradedStock(Number(summary?.by_grade?.["ตกเกรด"] ?? 0));
       setProcessedRows(processed);
     } catch (e) {
       setErr(e?.message || "โหลดข้อมูลไม่สำเร็จ");
@@ -138,7 +138,7 @@ export default function OwnerProcessing() {
                       ทุเรียนตกเกรดคงเหลือ (กก.)
                     </div>
                     <div className="text-2xl font-semibold">
-                      {downgradedStock.toLocaleString()}
+                      {downgradedStock.toLocaleString("th-TH")}
                     </div>
                   </div>
                 </div>

@@ -1,10 +1,5 @@
 import { request } from "./http";
 
-export async function getDowngradedStock() {
-  const res = await request("/processing/stock");
-  return Number(res?.remaining ?? 0);
-}
-
 export async function createProcessingRecord({ method, amountKg, note }) {
   const res = await request("/processing", {
     method: "POST",
