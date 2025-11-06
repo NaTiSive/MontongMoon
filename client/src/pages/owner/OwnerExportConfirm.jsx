@@ -60,12 +60,12 @@ export default function OwnerExportConfirm() {
   }, []);
 
   const estValue = (r) => {
-  const p = priceMap[r.broker_id] || { A:0, B:0, C:0 };
-  const a = Number(r.grades?.A || r.gradeA || 0);
-  const b = Number(r.grades?.B || r.gradeB || 0);
-  const c = Number(r.grades?.C || r.gradeC || 0);
-  return (a*p.A + b*p.B + c*p.C);
-};
+    const p = priceMap[r.broker_id] || { A: 0, B: 0, C: 0 };
+    const a = Number(r.grades?.A ?? r.gradeA ?? 0);
+    const b = Number(r.grades?.B ?? r.gradeB ?? 0);
+    const c = Number(r.grades?.C ?? r.gradeC ?? 0);
+    return a * p.A + b * p.B + c * p.C;
+  };
 
   const pending = useMemo(
     () => requests.filter((r) => r.status === "รอการยืนยันจากเจ้าของสวน"),
@@ -159,9 +159,9 @@ export default function OwnerExportConfirm() {
                         <tr key={r.id} className="bg-white">
                           <td className="py-2 px-3">{fmtDT(r.created_at)}</td>
                           <td className="py-2 px-3">Broker #{r.broker_id}</td>
-                          <td className="py-2 px-3">{r.grades.A}</td>
-                          <td className="py-2 px-3">{r.grades.B}</td>
-                          <td className="py-2 px-3">{r.grades.C}</td>+{" "}
+                          <td className="py-2 px-3">{Number(r.grades?.A ?? r.gradeA ?? 0)}</td>
+                          <td className="py-2 px-3">{Number(r.grades?.B ?? r.gradeB ?? 0)}</td>
+                          <td className="py-2 px-3">{Number(r.grades?.C ?? r.gradeC ?? 0)}</td>
                           <td className="py-2 px-3">
                             {(() => {
                               const p = priceMap[r.broker_id] || {
@@ -179,7 +179,7 @@ export default function OwnerExportConfirm() {
                           <td className="py-2 px-3">
                             {estValue(r).toLocaleString("th-TH")}
                           </td>
-                          <td className="py-2 px-3">{r.grades.total}</td>
+                          <td className="py-2 px-3">{Number(r.grades?.total ?? r.total ?? 0)}</td>
                           <td className="py-2 px-3">
                             <span className="px-3 py-1 rounded-lg bg-amber-100 text-amber-700 text-xs font-medium">
                               {r.status}
@@ -236,10 +236,10 @@ export default function OwnerExportConfirm() {
                         <tr key={r.id} className="bg-white">
                           <td className="py-2 px-3">{fmtDT(r.created_at)}</td>
                           <td className="py-2 px-3">Broker #{r.broker_id}</td>
-                          <td className="py-2 px-3">{r.grades.A}</td>
-                          <td className="py-2 px-3">{r.grades.B}</td>
-                          <td className="py-2 px-3">{r.grades.C}</td>
-                          <td className="py-2 px-3">{r.grades.total}</td>
+                          <td className="py-2 px-3">{Number(r.grades?.A ?? r.gradeA ?? 0)}</td>
+                          <td className="py-2 px-3">{Number(r.grades?.B ?? r.gradeB ?? 0)}</td>
+                          <td className="py-2 px-3">{Number(r.grades?.C ?? r.gradeC ?? 0)}</td>
+                          <td className="py-2 px-3">{Number(r.grades?.total ?? r.total ?? 0)}</td>
                           <td className="py-2 px-3">
                             <span className="px-3 py-1 rounded-lg text-xs font-medium bg-slate-100 text-slate-700">
                               {r.status}
