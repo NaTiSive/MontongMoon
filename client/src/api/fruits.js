@@ -44,12 +44,13 @@ const EMPTY_SUMMARY = Object.freeze(
   Object.fromEntries(GRADES.map((grade) => [grade, 0]))
 );
 
-export async function getHarvestSummary({ startISO, endISO, broker_id, tree_id } = {}) {
+export async function getHarvestSummary({ startISO, endISO, broker_id, tree_id, mode } = {}) {
   const params = new URLSearchParams();
   if (startISO) params.append("start", startISO);
   if (endISO) params.append("end", endISO);
   if (broker_id) params.append("broker_id", broker_id);
   if (tree_id) params.append("tree_id", tree_id);
+  if (mode) params.append("mode", mode);
   const query = params.toString();
   const res = await request(`/trees/harvest/summary${query ? `?${query}` : ""}`);
   const summary = res?.summary ?? {};
