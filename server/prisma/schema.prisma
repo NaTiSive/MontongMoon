@@ -141,7 +141,7 @@ model Account {
   date          DateTime             @map("date") @db.Date
   status        AccountStatus        @map("status")
   type          AccountType          @map("type")
-  invoiceRef    String?              @map("invoice_ref") @db.Text
+  invoiceRef    String?              @map("invoice_ref") @db.LongText
   amount        Decimal              @map("amount") @db.Decimal(12, 2)
   note          String?              @map("note") @db.VarChar(1000)
 
