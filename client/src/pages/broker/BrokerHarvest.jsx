@@ -96,7 +96,7 @@ export default function BrokerHarvest() {
           startISO || endISO
             ? listFruitsByDateRangeHarvestOnly({ startISO, endISO, tree_id })
             : listHarvestOnly({ tree_id }),
-          getHarvestSummary({ startISO, endISO, tree_id, mode: "net" }),
+          getHarvestSummary({ startISO, endISO, tree_id }),
         ]);
 
         if (!alive) return;
@@ -147,7 +147,6 @@ export default function BrokerHarvest() {
           startISO,
           endISO,
           tree_id,
-          mode: "net",
         });
         setSummary(sum);
       } catch (e) {
@@ -339,7 +338,7 @@ export default function BrokerHarvest() {
             <Card>
               <PageHeader
                 title="สต็อกทุเรียนคงเหลือ"
-                subtitle="น้ำหนักพร้อมจำหน่าย (กก.) จำแนกตามเกรด"
+                subtitle="น้ำหนักผลผลิตที่ยังอยู่ในคลัง (กก.) จำแนกตามเกรด"
               />
               <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
                 <SummaryBox
@@ -397,7 +396,7 @@ export default function BrokerHarvest() {
                 </div>
               )}
               <p className="text-xs text-slate-400 mt-2">
-                * ตารางด้านล่างเป็นประวัติการเก็บเกี่ยว ขณะที่สรุปด้านบนคือสต็อกคงเหลือหลังหักการส่งออกและการแปรรูปแล้ว
+                * ตารางด้านล่างเป็นประวัติการเก็บเกี่ยว ส่วนสรุปด้านบนคือผลผลิตที่ยังเป็นสถานะ "เก็บเกี่ยว" และพร้อมใช้งาน
               </p>
             </Card>
           </div>

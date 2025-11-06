@@ -59,22 +59,13 @@ router.get("/harvest/summary", authenticate(), async (req, res) => {
 
   // เดิมล็อก ownerId: 1 -> ทำให้ broker ได้ 0 เสมอ
   const ownerId = req.user.role === "owner" ? req.user.id : null;
-  const summary =
-    mode === "net"
-      ? await computeNetStockByGrade({
-          ownerId,
-          brokerId,
-          treeId,
-          start: startDate,
-          end: endDate,
-        })
-      : await sumHarvestByGrade({
-          ownerId,
-          brokerId,
-          treeId,
-          start: startDate,
-          end: endDate,
-        });
+  const summary = await sumHarvestByGrade({
+    ownerId,
+    brokerId,
+    treeId,
+    start: startDate,
+    end: endDate,
+  });
   res.json({ summary });
 });
 
