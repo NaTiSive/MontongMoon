@@ -1,5 +1,5 @@
 // src/pages/broker/BrokerExportConfirm.jsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import Sidebar from "../../components/Sidebar";
 import HeaderWrapper from "../../components/HeaderWrapper";
 import Card from "../../components/Card";
@@ -8,7 +8,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 
 import {
-  getAvailableStockByGrade,
+  getBrokerStockWithPrices,
   submitExportRequest,
   listBrokerExportRequests,
   withdrawExportRequest,
@@ -19,7 +19,11 @@ export default function BrokerExportConfirm() {
   const navigate = useNavigate();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [err, setErr] = useState("");
-  const [stock, setStock] = useState({ A:0, B:0, C:0 });
+  const [stock, setStock] = useState({
+    A: { amount: 0, price: 0 },
+    B: { amount: 0, price: 0 },
+    C: { amount: 0, price: 0 },
+  });
   const [history, setHistory] = useState([]);
 
   useEffect(() => {
@@ -31,10 +35,23 @@ export default function BrokerExportConfirm() {
   const reload = async () => {
     try {
       const [s, h] = await Promise.all([
-        getAvailableStockByGrade({ broker_id: brokerId }),
+        getBrokerStockWithPrices(brokerId),
         listBrokerExportRequests(brokerId),
       ]);
-      setStock(s);
+      setStock({
+        A: {
+          amount: Number(s?.A?.amount ?? 0),
+          price: Number(s?.A?.price ?? 0),
+        },
+        B: {
+          amount: Number(s?.B?.amount ?? 0),
+          price: Number(s?.B?.price ?? 0),
+        },
+        C: {
+          amount: Number(s?.C?.amount ?? 0),
+          price: Number(s?.C?.price ?? 0),
+        },
+      });
       setHistory(h);
       setErr("");
     } catch (e) {
@@ -46,13 +63,20 @@ export default function BrokerExportConfirm() {
     reload();
   }, [brokerId]);
 
-  const sum = stock.A + stock.B + stock.C;
+  const sum =
+    Number(stock?.A?.amount ?? 0) +
+    Number(stock?.B?.amount ?? 0) +
+    Number(stock?.C?.amount ?? 0);
 
   const send = async () => {
     try {
       await submitExportRequest({
         broker_id: brokerId,
-        grades: { ...stock },
+        grades: {
+          A: Number(stock?.A?.amount ?? 0),
+          B: Number(stock?.B?.amount ?? 0),
+          C: Number(stock?.C?.amount ?? 0),
+        },
       });
       alert("ส่งคำขอแล้ว");
       await reload();
@@ -94,9 +118,21 @@ export default function BrokerExportConfirm() {
             {/* พร้อมส่งออก */}
             <Card>
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                <Stat label="พร้อมส่งออก A (กก.)" value={stock.A} />
-                <Stat label="พร้อมส่งออก B (กก.)" value={stock.B} />
-                <Stat label="พร้อมส่งออก C (กก.)" value={stock.C} />
+                <Stat
+                  label="พร้อมส่งออก A (กก.)"
+                  value={stock.A?.amount}
+                  price={stock.A?.price}
+                />
+                <Stat
+                  label="พร้อมส่งออก B (กก.)"
+                  value={stock.B?.amount}
+                  price={stock.B?.price}
+                />
+                <Stat
+                  label="พร้อมส่งออก C (กก.)"
+                  value={stock.C?.amount}
+                  price={stock.C?.price}
+                />
                 <Stat label="รวม (กก.)" value={sum} />
               </div>
               <div className="mt-3 flex justify-end">
@@ -155,11 +191,25 @@ export default function BrokerExportConfirm() {
   );
 }
 
-function Stat({ label, value }) {
+function Stat({ label, value, price }) {
+  const formattedValue = Number(value ?? 0).toLocaleString("th-TH");
+  const hasPrice = price !== undefined && price !== null;
+  const formattedPrice = hasPrice
+    ? Number(price || 0).toLocaleString("th-TH", {
+        style: "currency",
+        currency: "THB",
+        minimumFractionDigits: 2,
+      })
+    : null;
   return (
     <div className="rounded-xl border bg-white p-4">
       <div className="text-xs text-slate-500">{label}</div>
-      <div className="text-2xl font-semibold">{Number(value||0).toLocaleString("th-TH")}</div>
+      <div className="text-2xl font-semibold">{formattedValue}</div>
+      {hasPrice && (
+        <div className="mt-1 text-xs text-slate-500">
+          ราคา: {formattedPrice}/กก.
+        </div>
+      )}
     </div>
   );
 }
