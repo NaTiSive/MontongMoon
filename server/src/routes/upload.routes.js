@@ -8,7 +8,7 @@ import { authenticate } from "../middleware/auth.js";
 
 const router = Router();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const uploadsDir = path.join(__dirname, "..", "uploads", "invoices");
+const uploadsDir = path.join(__dirname, "..", "..", "uploads", "invoices");
 fs.mkdirSync(uploadsDir, { recursive: true });
 
 const storage = multer.diskStorage({

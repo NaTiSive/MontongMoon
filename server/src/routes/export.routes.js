@@ -37,7 +37,7 @@ async function nextAccountId(tx) {
 }
 
 /* ---------- Helpers: stock / price ---------- */
-// สต็อกพร้อมส่งออกของ broker: (เก็บเกี่ยว*) - (ขนส่งออก)
+// สต็อกพร้อมส่งออกของ broker: คงเหลือที่ type ยังเป็น "เก็บเกี่ยว*"
 async function getStockByGrade(brokerId) {
   const result = { A: 0, B: 0, C: 0 };
   if (!brokerId) return result;
@@ -52,21 +52,10 @@ async function getStockByGrade(brokerId) {
     brokerId
   );
 
-  const exported = await prisma.$queryRawUnsafe(
-    `SELECT grade, COALESCE(SUM(amount),0) AS sum_amount
-       FROM durian_fruit
-      WHERE broker_id = ?
-        AND grade IN ('A','B','C')
-        AND TRIM(type) = '${TYPE_EXPORT}'
-      GROUP BY grade`,
-    brokerId
-  );
-
   const h = Object.fromEntries(harvested.map(r => [r.grade, Number(r.sum_amount || 0)]));
-  const e = Object.fromEntries(exported.map(r => [r.grade, Number(r.sum_amount || 0)]));
 
   for (const g of GRADES) {
-    result[g] = Math.max(0, (h[g] || 0) - (e[g] || 0));
+    result[g] = Number(h[g] || 0);
   }
   return result;
 }
