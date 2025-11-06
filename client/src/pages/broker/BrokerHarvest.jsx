@@ -9,7 +9,6 @@ import { useNavigate } from "react-router-dom";
 import {
   GRADES,
   createHarvestFruitRecord,
-  getHarvestSummary,
   listHarvestOnly,
   listFruitsByDateRangeHarvestOnly,
 } from "../../api/fruits";
@@ -24,6 +23,31 @@ const createEmptySummary = () => ({
   by_grade: { ...BROKER_GRADE_SUMMARY_TEMPLATE },
 });
 
+const computeSummaryFromRows = (list = []) => {
+  const summary = createEmptySummary();
+
+  for (const item of list) {
+    const weightRaw = item?.weight_kg ?? item?.weight ?? item?.amount ?? 0;
+    const numeric = Number(weightRaw);
+    if (!Number.isFinite(numeric)) continue;
+
+    const weight = Math.max(0, numeric);
+    summary.sum_weight += weight;
+
+    const grade = item?.grade;
+    if (grade && Object.prototype.hasOwnProperty.call(summary.by_grade, grade)) {
+      summary.by_grade[grade] += weight;
+    }
+  }
+
+  summary.sum_weight = Number(summary.sum_weight) || 0;
+  for (const grade of GRADES) {
+    summary.by_grade[grade] = Number(summary.by_grade[grade]) || 0;
+  }
+
+  return summary;
+};
+
 export default function BrokerHarvest() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -37,7 +61,6 @@ export default function BrokerHarvest() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
-  const [summary, setSummary] = useState(() => createEmptySummary());
   const [trees, setTrees] = useState([]);
   const [loadingTrees, setLoadingTrees] = useState(true);
 
@@ -92,21 +115,19 @@ export default function BrokerHarvest() {
         const tree_id = treeFilter && treeFilter !== "ทั้งหมด" ? treeFilter : undefined;
 
         // ✅ ไม่ต้องส่ง broker_id → backend จะอ่านจาก JWT เอง
-        const [data, sum] = await Promise.all([
+        const data = await (
           startISO || endISO
             ? listFruitsByDateRangeHarvestOnly({ startISO, endISO, tree_id })
-            : listHarvestOnly({ tree_id }),
-          getHarvestSummary({ startISO, endISO, tree_id }),
-        ]);
+            : listHarvestOnly({ tree_id })
+        );
 
         if (!alive) return;
         setRows(data);
-        setSummary(sum);
         setErr("");
       } catch (e) {
         if (!alive) return;
         setErr(e?.message || "โหลดข้อมูลไม่สำเร็จ");
-        setSummary(createEmptySummary());
+        setRows([]);
       } finally {
         if (!alive) return;
         setLoading(false);
@@ -134,18 +155,14 @@ export default function BrokerHarvest() {
 
       setRows((prev) => [rec, ...prev]);
 
-      const startISO = startDate ? new Date(startDate).toISOString() : undefined;
-      const endISO = endDate ? new Date(endDate + "T23:59:59").toISOString() : undefined;
-      const tree_id = treeFilter && treeFilter !== "ทั้งหมด" ? treeFilter : undefined;
-
-      const sum = await getHarvestSummary({ startISO, endISO, tree_id });
-      setSummary(sum);
       setForm((prev) => ({ ...prev, weight_kg: "" }));
       alert("บันทึกผลผลิตเรียบร้อย");
     } catch (e) {
       alert(e?.message || "เกิดข้อผิดพลาดในการบันทึก");
     }
   };
+
+  const summary = useMemo(() => computeSummaryFromRows(rows), [rows]);
 
   // ─────────── ฟังก์ชันกรอง ───────────
   const filtered = useMemo(() => {
