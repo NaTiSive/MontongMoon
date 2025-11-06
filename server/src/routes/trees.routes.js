@@ -3,7 +3,7 @@ import { z } from "zod";
 import prisma from "../config/prisma.js";
 import { authenticate, requireRole } from "../middleware/auth.js";
 import { mapTree } from "../utils/formatters.js";
-import { sumHarvestByGrade } from "../utils/fruits.js";
+import { computeNetStockByGrade, sumHarvestByGrade } from "../utils/fruits.js";
 
 const router = Router();
 
@@ -27,7 +27,7 @@ router.get("/", authenticate(), async (req, res) => {
 });
 
 router.get("/harvest/summary", authenticate(), async (req, res) => {
-  const { broker_id: brokerIdParam, tree_id: treeIdParam, start, end } = req.query;
+  const { broker_id: brokerIdParam, tree_id: treeIdParam, start, end, mode } = req.query;
   let brokerId = null;
   if (req.user.role === "broker") {
     brokerId = req.user.id;

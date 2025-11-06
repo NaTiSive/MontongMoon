@@ -80,7 +80,7 @@ export default function OwnerHarvest() {
           startISO || endISO
             ? listFruitsByDateRangeHarvestOnly({ startISO, endISO, tree_id })
             : listHarvestOnly({ tree_id }),
-          getHarvestSummary({ startISO, endISO, tree_id }),
+          getHarvestSummary({ startISO, endISO, tree_id, mode: "net" }),
         ]);
         if (!alive) return;
         setRows(data);
