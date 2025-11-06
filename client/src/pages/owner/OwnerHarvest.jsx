@@ -7,7 +7,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import {
   GRADES,
-  getHarvestSummary,
+  getHarvestStockSummary,
   listHarvestOnly,
   listFruitsByDateRangeHarvestOnly,
 } from "../../api/fruits";
@@ -21,6 +21,22 @@ const createEmptySummary = () => ({
   sum_weight: 0,
   by_grade: { ...OWNER_GRADE_SUMMARY_TEMPLATE },
 });
+
+const normalizeSummary = (raw) => {
+  const base = createEmptySummary();
+  const source = raw ?? {};
+  const normalized = {
+    sum_weight: Number(source.sum_weight) || 0,
+    by_grade: { ...base.by_grade },
+  };
+
+  const map = source.by_grade ?? {};
+  for (const grade of GRADES) {
+    normalized.by_grade[grade] = Number(map[grade]) || 0;
+  }
+
+  return normalized;
+};
 
 export default function OwnerHarvest() {
   const { user } = useAuth();
@@ -80,11 +96,11 @@ export default function OwnerHarvest() {
           startISO || endISO
             ? listFruitsByDateRangeHarvestOnly({ startISO, endISO, tree_id })
             : listHarvestOnly({ tree_id }),
-          getHarvestSummary({ startISO, endISO, tree_id }),
+          getHarvestStockSummary({ tree_id }),
         ]);
         if (!alive) return;
         setRows(data);
-        setSummary(sum);
+        setSummary(normalizeSummary(sum));
         setErr("");
       } catch (e) {
         if (!alive) return;

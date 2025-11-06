@@ -9,7 +9,7 @@ import { useNavigate } from "react-router-dom";
 import {
   GRADES,
   createHarvestFruitRecord,
-  getHarvestSummary,
+  getHarvestStockSummary,
   listHarvestOnly,
   listFruitsByDateRangeHarvestOnly,
 } from "../../api/fruits";
@@ -23,6 +23,22 @@ const createEmptySummary = () => ({
   sum_weight: 0,
   by_grade: { ...BROKER_GRADE_SUMMARY_TEMPLATE },
 });
+
+const normalizeSummary = (raw) => {
+  const base = createEmptySummary();
+  const source = raw ?? {};
+  const normalized = {
+    sum_weight: Number(source.sum_weight) || 0,
+    by_grade: { ...base.by_grade },
+  };
+
+  const map = source.by_grade ?? {};
+  for (const grade of GRADES) {
+    normalized.by_grade[grade] = Number(map[grade]) || 0;
+  }
+
+  return normalized;
+};
 
 export default function BrokerHarvest() {
   const { user } = useAuth();
@@ -92,20 +108,21 @@ export default function BrokerHarvest() {
         const tree_id = treeFilter && treeFilter !== "ทั้งหมด" ? treeFilter : undefined;
 
         // ✅ ไม่ต้องส่ง broker_id → backend จะอ่านจาก JWT เอง
-        const [data, sum] = await Promise.all([
+        const [data, stock] = await Promise.all([
           startISO || endISO
             ? listFruitsByDateRangeHarvestOnly({ startISO, endISO, tree_id })
             : listHarvestOnly({ tree_id }),
-          getHarvestSummary({ startISO, endISO, tree_id }),
+          getHarvestStockSummary({ tree_id }),
         ]);
 
         if (!alive) return;
         setRows(data);
-        setSummary(sum);
+        setSummary(normalizeSummary(stock));
         setErr("");
       } catch (e) {
         if (!alive) return;
         setErr(e?.message || "โหลดข้อมูลไม่สำเร็จ");
+        setRows([]);
         setSummary(createEmptySummary());
       } finally {
         if (!alive) return;
@@ -134,12 +151,10 @@ export default function BrokerHarvest() {
 
       setRows((prev) => [rec, ...prev]);
 
-      const startISO = startDate ? new Date(startDate).toISOString() : undefined;
-      const endISO = endDate ? new Date(endDate + "T23:59:59").toISOString() : undefined;
       const tree_id = treeFilter && treeFilter !== "ทั้งหมด" ? treeFilter : undefined;
+      const stock = await getHarvestStockSummary({ tree_id });
+      setSummary(normalizeSummary(stock));
 
-      const sum = await getHarvestSummary({ startISO, endISO, tree_id });
-      setSummary(sum);
       setForm((prev) => ({ ...prev, weight_kg: "" }));
       alert("บันทึกผลผลิตเรียบร้อย");
     } catch (e) {

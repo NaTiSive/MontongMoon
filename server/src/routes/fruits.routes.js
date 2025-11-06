@@ -8,7 +8,7 @@ import {
   FRUIT_PROCESS_TYPE_CODES,
   mapFruit,
 } from "../utils/formatters.js";
-import { sumHarvestByGrade } from "../utils/fruits.js";
+import { computeNetStockByGrade, sumHarvestByGrade } from "../utils/fruits.js";
 
 const router = Router();
 
@@ -150,6 +150,50 @@ router.get("/harvest/summary", authenticate(), async (req, res) => {
   });
 
   res.json({ summary });
+});
+
+router.get("/harvest/stock", authenticate(), async (req, res) => {
+  const { broker_id: brokerIdParam, tree_id: treeIdParam, start, end } = req.query;
+
+  let brokerId = null;
+  if (req.user.role === "broker") {
+    brokerId = req.user.id;
+  }
+  if (brokerIdParam) {
+    brokerId = String(brokerIdParam);
+  }
+
+  let treeId = null;
+  if (treeIdParam) {
+    treeId = String(treeIdParam);
+  }
+
+  let startDate;
+  if (start) {
+    const parsed = new Date(start);
+    if (!Number.isNaN(parsed.getTime())) {
+      startDate = parsed;
+    }
+  }
+
+  let endDate;
+  if (end) {
+    const parsed = new Date(end);
+    if (!Number.isNaN(parsed.getTime())) {
+      endDate = parsed;
+    }
+  }
+
+  const ownerId = req.user.role === "owner" ? req.user.id : null;
+  const stock = await computeNetStockByGrade({
+    ownerId,
+    brokerId,
+    treeId,
+    start: startDate,
+    end: endDate,
+  });
+
+  res.json({ stock });
 });
 
 /**
