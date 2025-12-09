@@ -1,32 +1,27 @@
+import { request } from "./http";
+
+export async function listActivitiesByBroker(broker_id) {
+  const path = broker_id ? `/activities?broker_id=${broker_id}` : `/activities`;
+  const res = await request(path);
+  return res?.data ?? [];
+}
+
+export async function listActivitiesForOwner() {
+  const res = await request("/activities");
+  return res?.data ?? [];
+}
+
 // src/api/activities.js
-const KEY = "mm:activities@v1";
-
-function load() {
-  return JSON.parse(localStorage.getItem(KEY) || "[]");
-}
-function save(data) {
-  localStorage.setItem(KEY, JSON.stringify(data));
-}
-
-export function listActivitiesByBroker(broker_id) {
-  return load().filter((a) => a.broker_id === broker_id);
+export async function createActivity({ broker_id, tree_id, type, activity_type, note, date }) {
+  const res = await request("/activities", {
+    method: "POST",
+    body: { broker_id, tree_id, type, activity_type, note, date },
+  });
+  return res?.data;
 }
 
-export function listActivitiesForOwner() {
-  return load();
+export async function listActivities() {
+  const res = await request("/activities");
+  return res?.data ?? [];
 }
 
-export function createActivity({ broker_id, tree_id, type, note }) {
-  const all = load();
-  const act = {
-    id: crypto.randomUUID(),
-    broker_id,
-    tree_id,
-    type, // เช่น "รดน้ำ", "ใส่ปุ๋ย", "ตัดหญ้า"
-    note,
-    created_at: new Date().toISOString(),
-  };
-  all.push(act);
-  save(all);
-  return act;
-}

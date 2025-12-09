@@ -1,5 +1,5 @@
 // src/pages/broker/BrokerExportConfirm.jsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import Sidebar from "../../components/Sidebar";
 import HeaderWrapper from "../../components/HeaderWrapper";
 import Card from "../../components/Card";
@@ -8,7 +8,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 
 import {
-  getAvailableStockByGrade,
+  getBrokerStockWithPrices,
   submitExportRequest,
   listBrokerExportRequests,
   withdrawExportRequest,
@@ -19,7 +19,11 @@ export default function BrokerExportConfirm() {
   const navigate = useNavigate();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [err, setErr] = useState("");
-  const [stock, setStock] = useState({ A:0, B:0, C:0 });
+  const [stock, setStock] = useState({
+    A: { amount: 0, price: 0 },
+    B: { amount: 0, price: 0 },
+    C: { amount: 0, price: 0 },
+  });
   const [history, setHistory] = useState([]);
 
   useEffect(() => {
@@ -28,38 +32,63 @@ export default function BrokerExportConfirm() {
 
   const brokerId = user?.broker_id;
 
-  const reload = () => {
+  const reload = async () => {
     try {
-      const s = getAvailableStockByGrade({ broker_id: brokerId });
-      setStock(s);
-      setHistory(listBrokerExportRequests(brokerId));
+      const [s, h] = await Promise.all([
+        getBrokerStockWithPrices(brokerId),
+        listBrokerExportRequests(brokerId),
+      ]);
+      setStock({
+        A: {
+          amount: Number(s?.A?.amount ?? 0),
+          price: Number(s?.A?.price ?? 0),
+        },
+        B: {
+          amount: Number(s?.B?.amount ?? 0),
+          price: Number(s?.B?.price ?? 0),
+        },
+        C: {
+          amount: Number(s?.C?.amount ?? 0),
+          price: Number(s?.C?.price ?? 0),
+        },
+      });
+      setHistory(h);
+      setErr("");
     } catch (e) {
       setErr(e.message || "โหลดข้อมูลไม่สำเร็จ");
     }
   };
 
-  useEffect(() => { reload(); }, [brokerId]);
+  useEffect(() => {
+    reload();
+  }, [brokerId]);
 
-  const sum = stock.A + stock.B + stock.C;
+  const sum =
+    Number(stock?.A?.amount ?? 0) +
+    Number(stock?.B?.amount ?? 0) +
+    Number(stock?.C?.amount ?? 0);
 
-  const send = () => {
+  const send = async () => {
     try {
-      // ส่งทั้งก้อนที่มี ณ ปัจจุบัน (หรือปรับเป็นกรอกเองได้)
-      const req = submitExportRequest({
+      await submitExportRequest({
         broker_id: brokerId,
-        grades: { ...stock },
+        grades: {
+          A: Number(stock?.A?.amount ?? 0),
+          B: Number(stock?.B?.amount ?? 0),
+          C: Number(stock?.C?.amount ?? 0),
+        },
       });
       alert("ส่งคำขอแล้ว");
-      reload();
+      await reload();
     } catch (e) {
       setErr(e.message);
     }
   };
 
-  const withdraw = (id) => {
+  const withdraw = async (id) => {
     try {
-      withdrawExportRequest({ req_id: id, broker_id: brokerId });
-      reload();
+      await withdrawExportRequest({ req_id: id, broker_id: brokerId });
+      await reload();
     } catch (e) {
       alert(e.message);
     }
@@ -89,9 +118,21 @@ export default function BrokerExportConfirm() {
             {/* พร้อมส่งออก */}
             <Card>
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                <Stat label="พร้อมส่งออก A (กก.)" value={stock.A} />
-                <Stat label="พร้อมส่งออก B (กก.)" value={stock.B} />
-                <Stat label="พร้อมส่งออก C (กก.)" value={stock.C} />
+                <Stat
+                  label="พร้อมส่งออก A (กก.)"
+                  value={stock.A?.amount}
+                  price={stock.A?.price}
+                />
+                <Stat
+                  label="พร้อมส่งออก B (กก.)"
+                  value={stock.B?.amount}
+                  price={stock.B?.price}
+                />
+                <Stat
+                  label="พร้อมส่งออก C (กก.)"
+                  value={stock.C?.amount}
+                  price={stock.C?.price}
+                />
                 <Stat label="รวม (กก.)" value={sum} />
               </div>
               <div className="mt-3 flex justify-end">
@@ -119,8 +160,10 @@ export default function BrokerExportConfirm() {
                     {history.length === 0 ? (
                       <tr><td className="py-3 px-3" colSpan={7}>ยังไม่มีคำขอ</td></tr>
                     ) : history.map((r, i) => {
-                      const a = Number(r.grades.A||0), b = Number(r.grades.B||0), c = Number(r.grades.C||0);
-                      const s = a+b+c;
+                      const a = Number(r.grades?.A ?? r.gradeA ?? 0);
+                      const b = Number(r.grades?.B ?? r.gradeB ?? 0);
+                      const c = Number(r.grades?.C ?? r.gradeC ?? 0);
+                      const s = Number(r.grades?.total ?? r.total ?? a + b + c);
                       return (
                         <tr key={r.id} className={i%2===0 ? "bg-white" : "bg-slate-50/60"}>
                           <td className="py-2 px-3">{fmtDT(r.created_at)}</td>
@@ -150,11 +193,25 @@ export default function BrokerExportConfirm() {
   );
 }
 
-function Stat({ label, value }) {
+function Stat({ label, value, price }) {
+  const formattedValue = Number(value ?? 0).toLocaleString("th-TH");
+  const hasPrice = price !== undefined && price !== null;
+  const formattedPrice = hasPrice
+    ? Number(price || 0).toLocaleString("th-TH", {
+        style: "currency",
+        currency: "THB",
+        minimumFractionDigits: 2,
+      })
+    : null;
   return (
     <div className="rounded-xl border bg-white p-4">
       <div className="text-xs text-slate-500">{label}</div>
-      <div className="text-2xl font-semibold">{Number(value||0).toLocaleString("th-TH")}</div>
+      <div className="text-2xl font-semibold">{formattedValue}</div>
+      {hasPrice && (
+        <div className="mt-1 text-xs text-slate-500">
+          ราคา: {formattedPrice}/กก.
+        </div>
+      )}
     </div>
   );
 }

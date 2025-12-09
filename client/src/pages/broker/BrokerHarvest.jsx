@@ -8,10 +8,45 @@ import { useAuth } from "../../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import {
   GRADES,
-  listFruitsByBrokerHarvestOnly,
-  listFruitsByDateRangeHarvestOnly,
   createHarvestFruitRecord,
+  listHarvestOnly,
+  listFruitsByDateRangeHarvestOnly,
 } from "../../api/fruits";
+import { listTrees } from "../../api/trees";
+
+const BROKER_GRADE_SUMMARY_TEMPLATE = Object.freeze(
+  Object.fromEntries(GRADES.map((grade) => [grade, 0]))
+);
+
+const createEmptySummary = () => ({
+  sum_weight: 0,
+  by_grade: { ...BROKER_GRADE_SUMMARY_TEMPLATE },
+});
+
+const computeSummaryFromRows = (list = []) => {
+  const summary = createEmptySummary();
+
+  for (const item of list) {
+    const weightRaw = item?.weight_kg ?? item?.weight ?? item?.amount ?? 0;
+    const numeric = Number(weightRaw);
+    if (!Number.isFinite(numeric)) continue;
+
+    const weight = Math.max(0, numeric);
+    summary.sum_weight += weight;
+
+    const grade = item?.grade;
+    if (grade && Object.prototype.hasOwnProperty.call(summary.by_grade, grade)) {
+      summary.by_grade[grade] += weight;
+    }
+  }
+
+  summary.sum_weight = Number(summary.sum_weight) || 0;
+  for (const grade of GRADES) {
+    summary.by_grade[grade] = Number(summary.by_grade[grade]) || 0;
+  }
+
+  return summary;
+};
 
 export default function BrokerHarvest() {
   const { user } = useAuth();
@@ -26,80 +61,122 @@ export default function BrokerHarvest() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
+  const [trees, setTrees] = useState([]);
+  const [loadingTrees, setLoadingTrees] = useState(true);
 
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [gradeFilter, setGradeFilter] = useState("ทั้งหมด");
+  const [treeFilter, setTreeFilter] = useState("ทั้งหมด");
   const [q, setQ] = useState("");
-  const [form, setForm] = useState({ grade: "A", weight_kg: "", note: "" });
+  const [form, setForm] = useState({ tree_id: "", grade: "A", weight_kg: "" });
 
-  // ─────────── โหลดข้อมูล ───────────
+  // ✅ รองรับหลายชื่อ id ของ broker (backend บางจุด normalize ต่างกัน)
+  const brokerId = user?.broker_id ?? user?.id ?? user?.brokerId ?? null;
+
+  // ─────────── โหลดรายการต้นไม้ ───────────
   useEffect(() => {
     let alive = true;
-    try {
-      const data = listFruitsByBrokerHarvestOnly(user?.broker_id);
-      if (alive) setRows(data);
-    } catch (e) {
-      if (alive) setErr(e?.message || "โหลดข้อมูลไม่สำเร็จ");
-    } finally {
-      setLoading(false);
-    }
+    if (!user || user.role !== "broker") return () => { alive = false; };
+
+    (async () => {
+      try {
+        setLoadingTrees(true);
+        const data = await listTrees(); // ❌ ไม่ต้องส่ง broker_id → backend อ่านจาก JWT
+        if (!alive) return;
+        setTrees(data);
+        if (!form.tree_id && data.length) {
+          setForm((prev) => ({ ...prev, tree_id: data[0].tree_id }));
+        }
+      } catch (e) {
+        if (!alive) return;
+        setTrees([]);
+      } finally {
+        if (!alive) return;
+        setLoadingTrees(false);
+      }
+    })();
+
     return () => {
       alive = false;
     };
-  }, [user?.broker_id]);
+  }, [user]);
+
+  // ─────────── โหลดข้อมูลผลผลิต ───────────
+  useEffect(() => {
+    let alive = true;
+    if (!user || user.role !== "broker") return () => { alive = false; };
+
+    (async () => {
+      try {
+        setLoading(true);
+        const startISO = startDate ? new Date(startDate).toISOString() : undefined;
+        const endISO = endDate ? new Date(endDate + "T23:59:59").toISOString() : undefined;
+        const tree_id = treeFilter && treeFilter !== "ทั้งหมด" ? treeFilter : undefined;
+
+        // ✅ ไม่ต้องส่ง broker_id → backend จะอ่านจาก JWT เอง
+        const data = await (
+          startISO || endISO
+            ? listFruitsByDateRangeHarvestOnly({ startISO, endISO, tree_id })
+            : listHarvestOnly({ tree_id })
+        );
+
+        if (!alive) return;
+        setRows(data);
+        setErr("");
+      } catch (e) {
+        if (!alive) return;
+        setErr(e?.message || "โหลดข้อมูลไม่สำเร็จ");
+        setRows([]);
+      } finally {
+        if (!alive) return;
+        setLoading(false);
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [user, startDate, endDate, treeFilter]);
 
   // ─────────── เพิ่มข้อมูลเก็บเกี่ยว ───────────
-  const add = () => {
+  const add = async () => {
     try {
+      if (!form.tree_id) return alert("กรุณาเลือกต้นทุเรียน");
       const w = Number(form.weight_kg);
       if (!w || w <= 0) return alert("กรุณาระบุน้ำหนักที่ถูกต้อง");
 
-      const rec = createHarvestFruitRecord({
-        broker_id: user?.broker_id,
+      // ✅ ไม่ต้องส่ง broker_id → backend ผูกกับ JWT แล้ว
+      const rec = await createHarvestFruitRecord({
+        tree_id: form.tree_id,
         grade: form.grade,
         weight_kg: w,
-        note: form.note?.trim(),
       });
+
       setRows((prev) => [rec, ...prev]);
-      setForm({ grade: "A", weight_kg: "", note: "" });
+
+      setForm((prev) => ({ ...prev, weight_kg: "" }));
       alert("บันทึกผลผลิตเรียบร้อย");
     } catch (e) {
       alert(e?.message || "เกิดข้อผิดพลาดในการบันทึก");
     }
   };
 
+  const summary = useMemo(() => computeSummaryFromRows(rows), [rows]);
+
   // ─────────── ฟังก์ชันกรอง ───────────
   const filtered = useMemo(() => {
     let list = rows;
-    if (startDate || endDate) {
-      list = listFruitsByDateRangeHarvestOnly({
-        startISO: startDate ? new Date(startDate).toISOString() : undefined,
-        endISO: endDate ? new Date(endDate + "T23:59:59").toISOString() : undefined,
-      }).filter((r) => String(r.broker_id) === String(user?.broker_id));
-    }
     if (gradeFilter !== "ทั้งหมด")
       list = list.filter((x) => x.grade === gradeFilter);
-
+    if (treeFilter !== "ทั้งหมด")
+      list = list.filter((x) => x.tree_id === treeFilter);
     const k = q.trim().toLowerCase();
     if (!k) return list;
     return list.filter((x) =>
-      `${x.grade} ${x.note ?? ""}`.toLowerCase().includes(k)
+      `${x.tree_id ?? ""} ${x.grade}`.toLowerCase()
     );
-  }, [rows, startDate, endDate, gradeFilter, q, user?.broker_id]);
-
-  // ─────────── รวมยอดตามเกรด ───────────
-  const totals = useMemo(() => {
-    const byGrade = Object.fromEntries(GRADES.map((g) => [g, { weight_kg: 0 }]));
-    filtered.forEach((r) => {
-      if (byGrade[r.grade]) byGrade[r.grade].weight_kg += Number(r.weight_kg || 0);
-    });
-    const sumWeight = Object.values(byGrade).reduce(
-      (s, g) => s + g.weight_kg,
-      0
-    );
-    return { sumWeight, byGrade };
-  }, [filtered]);
+  }, [rows, gradeFilter, treeFilter, q]);
 
   const fmtDT = (iso) =>
     new Date(iso).toLocaleString("th-TH", {
@@ -110,6 +187,7 @@ export default function BrokerHarvest() {
       minute: "2-digit",
     });
 
+  // ─────────── UI ───────────
   return (
     <div
       className={`min-h-screen w-full bg-slate-50 text-slate-900 flex flex-col md:flex-row ${
@@ -138,11 +216,27 @@ export default function BrokerHarvest() {
             {/* ฟอร์มบันทึกผลผลิต */}
             <Card>
               <h3 className="font-semibold mb-2">เพิ่มข้อมูลผลผลิตใหม่</h3>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
                 <div>
                   <label className="block text-sm text-slate-600 mb-1">
-                    เกรด
+                    ต้นทุเรียน
                   </label>
+                  <select
+                    value={form.tree_id}
+                    onChange={(e) => setForm((f) => ({ ...f, tree_id: e.target.value }))}
+                    className="w-full border rounded-lg px-3 py-2 bg-white"
+                    disabled={loadingTrees}
+                  >
+                    <option value="">— เลือกต้น —</option>
+                    {trees.map((t) => (
+                      <option key={t.tree_id} value={t.tree_id}>
+                        {t.tree_id}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-600 mb-1">เกรด</label>
                   <select
                     value={form.grade}
                     onChange={(e) => setForm((f) => ({ ...f, grade: e.target.value }))}
@@ -169,17 +263,6 @@ export default function BrokerHarvest() {
                   />
                 </div>
 
-                <div className="md:col-span-2">
-                  <label className="block text-sm text-slate-600 mb-1">
-                    หมายเหตุ
-                  </label>
-                  <input
-                    value={form.note}
-                    onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))}
-                    className="w-full border rounded-lg px-3 py-2 bg-white"
-                    placeholder="เช่น แปลง B แถว 2"
-                  />
-                </div>
               </div>
 
               <button
@@ -192,11 +275,9 @@ export default function BrokerHarvest() {
 
             {/* ฟิลเตอร์ */}
             <Card>
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
                 <div className="md:col-span-2">
-                  <label className="block text-sm text-slate-600 mb-1">
-                    วันที่เริ่ม
-                  </label>
+                  <label className="block text-sm text-slate-600 mb-1">วันที่เริ่ม</label>
                   <input
                     type="date"
                     value={startDate}
@@ -205,15 +286,29 @@ export default function BrokerHarvest() {
                   />
                 </div>
                 <div className="md:col-span-2">
-                  <label className="block text-sm text-slate-600 mb-1">
-                    วันที่สิ้นสุด
-                  </label>
+                  <label className="block text-sm text-slate-600 mb-1">วันที่สิ้นสุด</label>
                   <input
                     type="date"
                     value={endDate}
                     onChange={(e) => setEndDate(e.target.value)}
                     className="w-full border rounded-lg px-3 py-2 bg-white"
                   />
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-600 mb-1">ต้นทุเรียน</label>
+                  <select
+                    value={treeFilter}
+                    onChange={(e) => setTreeFilter(e.target.value)}
+                    className="w-full border rounded-lg px-3 py-2 bg-white"
+                    disabled={loadingTrees}
+                  >
+                    <option value="ทั้งหมด">ทั้งหมด</option>
+                    {trees.map((t) => (
+                      <option key={t.tree_id} value={t.tree_id}>
+                        {t.tree_id}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-sm text-slate-600 mb-1">เกรด</label>
@@ -230,7 +325,7 @@ export default function BrokerHarvest() {
                     ))}
                   </select>
                 </div>
-                <div className="md:col-span-5">
+                <div className="md:col-span-6">
                   <label className="block text-sm text-slate-600 mb-1">ค้นหา</label>
                   <input
                     type="text"
@@ -252,14 +347,14 @@ export default function BrokerHarvest() {
               <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
                 <SummaryBox
                   label="น้ำหนักรวมทั้งหมด"
-                  value={totals.sumWeight.toLocaleString("th-TH")}
+                  value={summary.sum_weight.toLocaleString("th-TH")}
                   subtitle="กิโลกรัม"
                 />
                 {GRADES.map((g) => (
                   <SummaryBox
                     key={g}
                     label={g === "ตกเกรด" ? "ตกเกรด (กก.)" : `เกรด ${g} (กก.)`}
-                    value={totals.byGrade[g].weight_kg.toLocaleString("th-TH")}
+                    value={(summary.by_grade[g] ?? 0).toLocaleString("th-TH")}
                   />
                 ))}
               </div>
@@ -279,7 +374,6 @@ export default function BrokerHarvest() {
                         <th className="py-2 px-3">เวลา</th>
                         <th className="py-2 px-3">เกรด</th>
                         <th className="py-2 px-3">น้ำหนัก (กก.)</th>
-                        <th className="py-2 px-3">หมายเหตุ</th>
                         <th className="py-2 px-3">#ไอดี</th>
                       </tr>
                     </thead>
@@ -296,9 +390,8 @@ export default function BrokerHarvest() {
                           <td className="py-2 px-3">
                             {Number(r.weight_kg).toLocaleString("th-TH")}
                           </td>
-                          <td className="py-2 px-3">{r.note || "-"}</td>
                           <td className="py-2 px-3 text-slate-500">
-                            {r.id.slice(0, 8)}
+                            {r.id?.slice(0, 8)}
                           </td>
                         </tr>
                       ))}

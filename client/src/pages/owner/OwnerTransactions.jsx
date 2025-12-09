@@ -25,11 +25,15 @@ export default function OwnerTransactions() {
   const [err, setErr] = useState("");
   const [summary, setSummary] = useState(null);
 
-  const reload = () => {
+  const reload = async () => {
     try {
-      const all = listAllTransactions();
-      setRows(all.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)));
-      setSummary(summarizeAll());
+      const all = await listAllTransactions();
+      setRows(
+        all.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+      );
+      const sum = await summarizeAll();
+      setSummary(sum);
+      setErr("");
     } catch (e) {
       setErr(e?.message || "โหลดข้อมูลไม่สำเร็จ");
     } finally {
@@ -43,7 +47,15 @@ export default function OwnerTransactions() {
   }, []);
 
   const fmt = (iso) =>
-    new Date(iso).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" });
+    new Date(iso).toLocaleString("th-TH", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+
+  // ช่วยประกอบ URL ให้ชี้ไปที่ backend เสมอ
+  const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:4000/api";
+  const SERVER_ORIGIN = API_BASE.replace(/\/api\/?$/, "");
+  const toFileUrl = (u) => (u?.startsWith("/static") ? SERVER_ORIGIN + u : u);
 
   // กรอง/ค้นหา
   const [q, setQ] = useState("");
@@ -53,39 +65,53 @@ export default function OwnerTransactions() {
 
   const filtered = useMemo(() => {
     let list = rows;
-    if (typeFilter !== "ทั้งหมด") list = list.filter((x) => x.type === typeFilter);
-    if (methodFilter !== "ทั้งหมด") list = list.filter((x) => x.payment_method === methodFilter);
-    if (statusFilter !== "ทั้งหมด") list = list.filter((x) => x.status === statusFilter);
+    if (typeFilter !== "ทั้งหมด")
+      list = list.filter((x) => x.type === typeFilter);
+    if (methodFilter !== "ทั้งหมด")
+      list = list.filter((x) => x.payment_method === methodFilter);
+    if (statusFilter !== "ทั้งหมด")
+      list = list.filter((x) => x.status === statusFilter);
     const k = q.trim().toLowerCase();
     if (!k) return list;
     return list.filter((x) =>
-      `${x.id} ${x.type} ${x.payment_method} ${x.amount} ${x.note} ${x.status} ${x.broker_id ?? ""}`
+      `${x.id} ${x.type} ${x.payment_method} ${x.amount} ${x.note} ${
+        x.status
+      } ${x.broker_id ?? ""}`
         .toLowerCase()
         .includes(k)
     );
   }, [rows, q, typeFilter, methodFilter, statusFilter]);
 
-  const onApprove = (id) => {
+  const onApprove = async (id) => {
     try {
-      approveTransaction(id);
-      reload();
+      await approveTransaction(id);
+      await reload();
     } catch (e) {
       alert(e?.message || "อนุมัติไม่สำเร็จ");
     }
   };
-  const onReject = (id) => {
+  const onReject = async (id) => {
     try {
-      rejectTransaction(id);
-      reload();
+      await rejectTransaction(id);
+      await reload();
     } catch (e) {
       alert(e?.message || "ปฏิเสธไม่สำเร็จ");
     }
   };
 
   return (
-    <div className={`min-h-screen w-full bg-slate-50 text-slate-900 flex flex-col md:flex-row ${isSidebarOpen ? "overflow-hidden md:overflow-auto" : ""}`}>
+    <div
+      className={`min-h-screen w-full bg-slate-50 text-slate-900 flex flex-col md:flex-row ${
+        isSidebarOpen ? "overflow-hidden md:overflow-auto" : ""
+      }`}
+    >
       <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
-      {isSidebarOpen && <div className="fixed inset-0 bg-black/40 z-40 md:hidden" onClick={() => setIsSidebarOpen(false)} />}
+      {isSidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/40 z-40 md:hidden"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
 
       <div className="flex-1 min-w-0 flex flex-col">
         <HeaderWrapper
@@ -106,19 +132,33 @@ export default function OwnerTransactions() {
                 <Card>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
                     <div>
-                      <div className="text-xs text-slate-500">จำนวนรายการทั้งหมด</div>
-                      <div className="text-2xl font-semibold">{summary?.total ?? 0}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-slate-500">รายรับ (อนุมัติ)</div>
+                      <div className="text-xs text-slate-500">
+                        จำนวนรายการทั้งหมด
+                      </div>
                       <div className="text-2xl font-semibold">
-                        {(summary?.incomeApproved ?? 0).toLocaleString("th-TH", { minimumFractionDigits: 2 })}
+                        {summary?.total ?? 0}
                       </div>
                     </div>
                     <div>
-                      <div className="text-xs text-slate-500">รายจ่าย (อนุมัติ)</div>
+                      <div className="text-xs text-slate-500">
+                        รายรับ (อนุมัติ)
+                      </div>
                       <div className="text-2xl font-semibold">
-                        {(summary?.expenseApproved ?? 0).toLocaleString("th-TH", { minimumFractionDigits: 2 })}
+                        {(summary?.incomeApproved ?? 0).toLocaleString(
+                          "th-TH",
+                          { minimumFractionDigits: 2 }
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-slate-500">
+                        รายจ่าย (อนุมัติ)
+                      </div>
+                      <div className="text-2xl font-semibold">
+                        {(summary?.expenseApproved ?? 0).toLocaleString(
+                          "th-TH",
+                          { minimumFractionDigits: 2 }
+                        )}
                       </div>
                     </div>
                     <div>
@@ -134,7 +174,9 @@ export default function OwnerTransactions() {
                 <Card>
                   <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
                     <div>
-                      <label className="block text-sm text-slate-600 mb-1">ประเภท</label>
+                      <label className="block text-sm text-slate-600 mb-1">
+                        ประเภท
+                      </label>
                       <select
                         value={typeFilter}
                         onChange={(e) => setTypeFilter(e.target.value)}
@@ -146,7 +188,9 @@ export default function OwnerTransactions() {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-sm text-slate-600 mb-1">วิธีจ่าย</label>
+                      <label className="block text-sm text-slate-600 mb-1">
+                        วิธีจ่าย
+                      </label>
                       <select
                         value={methodFilter}
                         onChange={(e) => setMethodFilter(e.target.value)}
@@ -159,7 +203,9 @@ export default function OwnerTransactions() {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-sm text-slate-600 mb-1">สถานะ</label>
+                      <label className="block text-sm text-slate-600 mb-1">
+                        สถานะ
+                      </label>
                       <select
                         value={statusFilter}
                         onChange={(e) => setStatusFilter(e.target.value)}
@@ -172,7 +218,9 @@ export default function OwnerTransactions() {
                       </select>
                     </div>
                     <div className="md:col-span-2">
-                      <label className="block text-sm text-slate-600 mb-1">ค้นหา</label>
+                      <label className="block text-sm text-slate-600 mb-1">
+                        ค้นหา
+                      </label>
                       <input
                         value={q}
                         onChange={(e) => setQ(e.target.value)}
@@ -206,27 +254,47 @@ export default function OwnerTransactions() {
                         </thead>
                         <tbody>
                           {filtered.map((r, i) => (
-                            <tr key={r.id} className={i % 2 === 0 ? "bg-white" : "bg-slate-50/60"}>
+                            <tr
+                              key={r.id}
+                              className={
+                                i % 2 === 0 ? "bg-white" : "bg-slate-50/60"
+                              }
+                            >
                               <td className="py-2 px-3">{fmt(r.created_at)}</td>
-                              <td className="py-2 px-3">{r.broker_id ?? "-"}</td>
+                              <td className="py-2 px-3">
+                                {r.broker_id ?? "-"}
+                              </td>
                               <td className="py-2 px-3">{r.type}</td>
                               <td className="py-2 px-3">{r.payment_method}</td>
                               <td className="py-2 px-3">
-                                {r.amount.toLocaleString("th-TH", { minimumFractionDigits: 2 })}
+                                {r.amount.toLocaleString("th-TH", {
+                                  minimumFractionDigits: 2,
+                                })}
                               </td>
                               <td className="py-2 px-3">
-                                <span className={`px-2 py-0.5 rounded-lg text-xs ${
-                                  r.status === "รอการตรวจสอบ"
-                                    ? "bg-amber-100 text-amber-700"
-                                    : r.status === "อนุมัติ"
-                                    ? "bg-emerald-100 text-emerald-700"
-                                    : "bg-rose-100 text-rose-700"
-                                }`}>
+                                <span
+                                  className={`px-2 py-0.5 rounded-lg text-xs ${
+                                    r.status === "รอการตรวจสอบ"
+                                      ? "bg-amber-100 text-amber-700"
+                                      : r.status === "อนุมัติ"
+                                      ? "bg-emerald-100 text-emerald-700"
+                                      : "bg-rose-100 text-rose-700"
+                                  }`}
+                                >
                                   {r.status}
                                 </span>
                               </td>
                               <td className="py-2 px-3">
-                                {r.receipt?.dataUrl ? (
+                                {r.invoice_ref ? (
+                                  <a
+                                    href={toFileUrl(r.invoice_ref)}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-emerald-700 underline"
+                                  >
+                                    ดาวน์โหลด
+                                  </a>
+                                ) : r.receipt?.dataUrl ? (
                                   <a
                                     href={r.receipt.dataUrl}
                                     download={r.receipt.name || "receipt"}
@@ -256,10 +324,14 @@ export default function OwnerTransactions() {
                                     </button>
                                   </div>
                                 ) : (
-                                  <span className="text-slate-400 text-xs">—</span>
+                                  <span className="text-slate-400 text-xs">
+                                    —
+                                  </span>
                                 )}
                               </td>
-                              <td className="py-2 px-3 text-slate-500">{r.id.slice(0, 8)}</td>
+                              <td className="py-2 px-3 text-slate-500">
+                                {r.id.slice(0, 8)}
+                              </td>
                             </tr>
                           ))}
                         </tbody>

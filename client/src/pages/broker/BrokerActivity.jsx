@@ -5,6 +5,7 @@ import HeaderWrapper from "../../components/HeaderWrapper";
 import Card from "../../components/Card";
 import { useAuth } from "../../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
+import { isApprovedStatus } from "../../utils/approval";
 
 import { createActivity, listActivitiesByBroker } from "../../api/activities";
 import { listTrees, seedTreesIfEmpty, updateTreeStatus } from "../../api/trees";
@@ -18,7 +19,7 @@ export default function BrokerActivity() {
     if (!user || user.role !== "broker") navigate("/login");
   }, [user, navigate]);
 
-  const disabled = user?.approvalStatus !== "approved";
+  const disabled = !isApprovedStatus(user?.approvalStatus);
 
   // ───────────────────────────
   // Load trees + my activities
@@ -32,13 +33,19 @@ export default function BrokerActivity() {
     (async () => {
       try {
         setLoading(true);
-        seedTreesIfEmpty();
-        const t = listTrees();
-        const acts = listActivitiesByBroker(user?.broker_id);
+        await seedTreesIfEmpty();
+        const [t, acts] = await Promise.all([
+          listTrees(),
+          listActivitiesByBroker(), // ให้ API กรองจาก token เอง
+        ]);
         if (!alive) return;
         setTrees(t);
-        // sort ใหม่สุดก่อน
-        setRows(acts.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)));
+        setRows(
+          (acts || []).sort(
+            (a, b) => new Date(b.created_at) - new Date(a.created_at)
+          )
+        );
+        setErr("");
       } catch (e) {
         if (!alive) return;
         setErr(e?.message || "โหลดข้อมูลไม่สำเร็จ");
@@ -72,39 +79,51 @@ export default function BrokerActivity() {
     return "ปกติ";
   };
 
-  const add = () => {
+  const add = async () => {
     if (disabled) return;
     if (!form.tree_id) return alert("กรุณาเลือกต้นไม้");
     if (!form.type) return alert("กรุณาเลือกประเภทกิจกรรม");
 
-    // create activity
-    const rec = createActivity({
-      broker_id: user?.broker_id,
-      tree_id: form.tree_id,
-      type: form.type,
-      note: form.note?.trim() || "",
-    });
-
-    // อัปเดตสถานะต้นไม้อัตโนมัติจากประเภทกิจกรรม
     try {
-      const newStatus = deriveStatusFromType(form.type);
-      updateTreeStatus(form.tree_id, newStatus);
-      // รีโหลดสถานะต้นไม้เพื่อให้ UI สะท้อนผล
-      setTrees(listTrees());
+      const rec = await createActivity({
+        tree_id: form.tree_id,
+        type: "รายต้น",
+        activity_type: form.type,
+        note: form.note?.trim() || "",
+        date: new Date().toISOString(),
+      });
+
+      // refresh รายการต้นไม้ เพื่อให้เห็น status ใหม่จาก backend
+      try {
+        setTrees(await listTrees());
+      } catch (e) {
+        console.error(e);
+      }
+
+      const normalize = (x) => ({
+        id: x.id || x.activity_id || x.activityId,
+        tree_id: x.tree_id ?? x.treeId ?? "",
+        // แสดงชนิดกิจกรรมเป็นไทย
+        type:
+          x.type ??
+          ({
+            maintenance: "ดูแลรักษา",
+            flowering: "ออกดอก",
+            fruiting: "ออกผล",
+            harvest: "เก็บเกี่ยว",
+            other: "อื่นๆ",
+          }[x.activity_type ?? x.activityType] ||
+            x.activity_type ||
+            x.activityType),
+        note: x.note ?? "",
+        created_at: x.created_at ?? x.date,
+      });
+
+      setRows((r) => [normalize(rec), ...r]);
+      setForm({ tree_id: "", type: form.type, note: "" });
     } catch (e) {
-      console.error(e);
-      alert(e?.message || "อัปเดตสถานะต้นไม้ไม่สำเร็จ");
+      alert(e?.message || "บันทึกกิจกรรมไม่สำเร็จ");
     }
-
-    // อัปเดตตาราง
-    setRows((r) => [rec, ...r]);
-
-    // reset ฟอร์ม (คงประเภทกิจกรรมเดิมไว้ให้)
-    setForm({
-      tree_id: "",
-      type: form.type,
-      note: "",
-    });
   };
 
   // ───────────────────────────
@@ -121,7 +140,9 @@ export default function BrokerActivity() {
     }
     const k = q.trim().toLowerCase();
     if (!k) return list;
-    return list.filter((x) => `${x.id} ${x.tree_id} ${x.type} ${x.note}`.toLowerCase().includes(k));
+    return list.filter((x) =>
+      `${x.id} ${x.tree_id} ${x.type} ${x.note}`.toLowerCase().includes(k)
+    );
   }, [rows, q, typeFilter]);
 
   const fmtDT = (iso) =>
@@ -156,7 +177,8 @@ export default function BrokerActivity() {
             {disabled && (
               <Card>
                 <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
-                  บัญชีของคุณยัง <b>รออนุมัติ</b> — ฟอร์มนี้ถูกปิดการใช้งานชั่วคราว
+                  บัญชีของคุณยัง <b>รออนุมัติ</b> —
+                  ฟอร์มนี้ถูกปิดการใช้งานชั่วคราว
                 </div>
               </Card>
             )}
@@ -166,7 +188,9 @@ export default function BrokerActivity() {
               <h3 className="font-semibold mb-2">เพิ่มกิจกรรมใหม่</h3>
               <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                 <div>
-                  <label className="block text-sm text-slate-600 mb-1">เลือกต้นไม้</label>
+                  <label className="block text-sm text-slate-600 mb-1">
+                    เลือกต้นไม้
+                  </label>
                   <select
                     value={form.tree_id}
                     onChange={update("tree_id")}
@@ -176,14 +200,17 @@ export default function BrokerActivity() {
                     <option value="">— เลือกต้น —</option>
                     {trees.map((t) => (
                       <option key={t.id ?? t.tree_id} value={t.id ?? t.tree_id}>
-                        {(t.id ?? t.tree_id)} — {t.name ?? `ต้นที่ ${t.id ?? t.tree_id}`} ({t.status})
+                        {t.id ?? t.tree_id} —{" "}
+                        {t.name ?? `ต้นที่ ${t.id ?? t.tree_id}`} ({t.status})
                       </option>
                     ))}
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-sm text-slate-600 mb-1">ประเภทกิจกรรม</label>
+                  <label className="block text-sm text-slate-600 mb-1">
+                    ประเภทกิจกรรม
+                  </label>
                   <select
                     value={form.type}
                     onChange={update("type")}
@@ -197,7 +224,9 @@ export default function BrokerActivity() {
                 </div>
 
                 <div className="md:col-span-2">
-                  <label className="block text-sm text-slate-600 mb-1">หมายเหตุ</label>
+                  <label className="block text-sm text-slate-600 mb-1">
+                    หมายเหตุ
+                  </label>
                   <input
                     value={form.note}
                     onChange={update("note")}
@@ -212,7 +241,9 @@ export default function BrokerActivity() {
                 onClick={add}
                 disabled={disabled}
                 className={`mt-3 px-4 py-2 rounded-lg text-white text-sm ${
-                  disabled ? "bg-slate-400 cursor-not-allowed" : "bg-emerald-700 hover:bg-emerald-800"
+                  disabled
+                    ? "bg-slate-400 cursor-not-allowed"
+                    : "bg-emerald-700 hover:bg-emerald-800"
                 }`}
               >
                 เพิ่มกิจกรรม
@@ -222,7 +253,9 @@ export default function BrokerActivity() {
             {/* แผงค้นหา/กรอง */}
             <Card>
               <div className="flex flex-col md:flex-row md:items-center gap-3 md:justify-between">
-                <div className="text-sm text-slate-600">ทั้งหมด {rows.length} รายการ</div>
+                <div className="text-sm text-slate-600">
+                  ทั้งหมด {rows.length} รายการ
+                </div>
                 <div className="flex items-center gap-2">
                   <select
                     value={typeFilter}
@@ -279,7 +312,8 @@ export default function BrokerActivity() {
                 </div>
               )}
               <p className="text-xs text-slate-400 mt-2">
-                * ข้อมูลนี้เป็น mock ฝั่งนายหน้า (เก็บในเบราว์เซอร์) — เมื่อเชื่อม backend แล้วให้ย้ายไปเรียก API จริง
+                * ข้อมูลนี้เป็น mock ฝั่งนายหน้า (เก็บในเบราว์เซอร์) —
+                เมื่อเชื่อม backend แล้วให้ย้ายไปเรียก API จริง
               </p>
             </Card>
           </div>

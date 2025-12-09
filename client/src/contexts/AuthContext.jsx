@@ -1,101 +1,110 @@
+// src/contexts/AuthContext.jsx
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { getBrokerApproval } from "../api/contracts";
+import {
+  fetchCurrentUser,
+  login as apiLogin,
+  logout as apiLogout,
+} from "../api/auth";
+import {
+  getStoredAuth,
+  setStoredAuth,
+  clearStoredAuth,
+} from "../api/http";
 
 const AuthCtx = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true); // ✅ รอโหลดข้อมูลก่อน
+  const [loading, setLoading] = useState(true);
 
+  // 🧠 โหลด token จาก localStorage ตอนเริ่มต้น
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem("user");
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed && parsed.email) setUser(parsed);
+    let alive = true;
+    (async () => {
+      try {
+        const auth = getStoredAuth();
+        if (auth?.user) {
+          setUser(auth.user);
+        } else {
+          const current = await fetchCurrentUser();
+          if (!alive) return;
+          if (current) {
+            setUser(current);
+            setStoredAuth({ user: current });
+          }
+        }
+      } catch {
+        // ถ้า token หมดอายุ ล้างทิ้ง
+        clearStoredAuth();
+      } finally {
+        if (alive) setLoading(false);
       }
-    } catch (err) {
-      console.error("Error reading user:", err);
-      localStorage.removeItem("user");
-    } finally {
-      setLoading(false);
-    }
+    })();
+    return () => {
+      alive = false;
+    };
   }, []);
 
-  // ✅ login & save user
-  const login = async (userObj) => {
-    setUser(userObj);
-    localStorage.setItem("user", JSON.stringify(userObj));
+  // ✅ login: บันทึก token + user ลง localStorage
+  const login = async (credentials) => {
+    const data = await apiLogin(credentials);
+    if (data?.token && data?.user) {
+      setStoredAuth({ user: data.user, token: data.token });
+      setUser(data.user);
+    }
+    return data?.user;
   };
 
-  // ✅ update user profile
-// src/contexts/AuthContext.jsx (เฉพาะส่วนฟังก์ชัน updateUser)
-const updateUser = (newData) => {
-  setUser((prev) => {
-    if (!prev) return prev;
-    const updated = { ...prev, ...newData };
+  // ✅ logout: ล้างทุกอย่าง
+  const logout = () => {
+    setUser(null);
+    clearStoredAuth();
+    apiLogout();
+  };
 
-    // ✅ เขียนกลับ localStorage user ปัจจุบัน
-    localStorage.setItem("mm:user@v1", JSON.stringify(updated));
+  // ✅ update user profile (เช่น เปลี่ยนชื่อ/รูป)
+  const updateUser = (newData) => {
+    setUser((prev) => {
+      if (!prev) return prev;
+      const updated = { ...prev, ...newData };
+      const auth = getStoredAuth();
+      if (auth) setStoredAuth({ ...auth, user: updated });
+      return updated;
+    });
+  };
 
-    // ✅ ถ้าเป็น broker → อัปเดตใน mm:brokers@v1 ด้วย
-    if (updated.role === "broker" && updated.broker_id != null) {
-      try {
-        const arr = JSON.parse(localStorage.getItem("mm:brokers@v1") || "[]");
-        const i = arr.findIndex((b) => b.broker_id === updated.broker_id);
-        if (i !== -1) {
-          arr[i] = { ...arr[i], ...newData };
-          localStorage.setItem("mm:brokers@v1", JSON.stringify(arr));
-        }
-      } catch (e) {
-        console.warn("updateUser broker save failed:", e);
-      }
-    }
-
-    return updated;
-  });
-};
-
-
-  // ✅ auto-sync broker approvalStatus (เมื่อโฟกัสหน้าต่าง หรือเป็นระยะ)
+  // ✅ auto-sync broker approvalStatus
   useEffect(() => {
     if (user?.role !== "broker" || user?.broker_id == null) return;
     const sync = () => {
-      try {
-        const latest = getBrokerApproval(user.broker_id);
-        if (latest && latest !== user.approvalStatus) {
-          updateUser({ approvalStatus: latest });
-        }
-      } catch {}
+      (async () => {
+        try {
+          const latest = await getBrokerApproval(user.broker_id);
+          if (latest && latest !== user.approvalStatus) {
+            updateUser({ approvalStatus: latest });
+          }
+        } catch {}
+      })();
     };
-    // sync เมื่อกลับมาโฟกัส + interval สั้น ๆ
     window.addEventListener("focus", sync);
     const t = setInterval(sync, 2000);
-    sync(); // เรียกทันทีรอบหนึ่ง
+    sync();
     return () => {
       window.removeEventListener("focus", sync);
       clearInterval(t);
     };
   }, [user?.role, user?.broker_id, user?.approvalStatus]);
 
-  // ✅ update approval status (owner→broker)
-  const updateApproval = (status) => {
-    setUser((prev) => {
-      const updated = { ...prev, approvalStatus: status };
-      localStorage.setItem("user", JSON.stringify(updated));
-      return updated;
-    });
-  };
-
-  // ✅ logout
-  const logout = () => {
-    setUser(null);
-    localStorage.removeItem("user");
-  };
-
   return (
     <AuthCtx.Provider
-      value={{ user, loading, login, logout, updateUser, updateApproval }}
+      value={{
+        user,
+        loading,
+        login,
+        logout,
+        updateUser,
+      }}
     >
       {children}
     </AuthCtx.Provider>

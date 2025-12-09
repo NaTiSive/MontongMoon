@@ -30,9 +30,10 @@ export default function OwnerProblems() {
     (async () => {
       try {
         setLoading(true);
-        const all = listProblems();
+        const all = await listProblems(); // ✅ ต้อง await
         if (!alive) return;
         setRows(all);
+        setErr("");
       } catch (e) {
         if (!alive) return;
         setErr(e?.message || "โหลดรายการปัญหาไม่สำเร็จ");
@@ -41,51 +42,74 @@ export default function OwnerProblems() {
         setLoading(false);
       }
     })();
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+    };
   }, []);
 
-  // แยกประเภทจาก description ที่ broker ใส่ prefix ไว้ เช่น "[รายต้น] ใบไหม้..."
+  // รองรับทั้งกรณีใหม่ (มี p.type) และเก่า (มี prefix ใน description)
   const parseType = (desc = "") => {
     if (desc.startsWith("[รายต้น]")) return "รายต้น";
-    if (desc.startsWith("[ทั้งสวน]")) return "ทั้งสวน";
+    if (desc.startsWith("[ทั้งสวน]") || desc.startsWith("[ภาพรวม]"))
+      return "ภาพรวม";
     return "-";
   };
-  const stripTypePrefix = (desc = "") => String(desc).replace(/^\[(รายต้น|ทั้งสวน)\]\s*/u, "");
+  const getType = (p) => p.type || parseType(p.description || "");
+  const stripTypePrefix = (desc = "") =>
+    String(desc).replace(/^\[(รายต้น|ทั้งสวน|ภาพรวม)\]\s*/u, "");
 
   const filtered = useMemo(() => {
     const k = q.trim().toLowerCase();
     return rows.filter((p) => {
-      const text = `${p.id} ${p.tree_id ?? ""} ${p.description ?? ""} ${p.owner_note ?? ""} ${p.status ?? ""}`.toLowerCase();
+      const text = `${p.id} ${p.tree_id ?? ""} ${p.description ?? ""} ${
+        p.owner_note ?? ""
+      } ${p.status ?? ""} ${getType(p)}`.toLowerCase();
       const hitQ = k ? text.includes(k) : true;
-      const tp = parseType(p.description);
+      const tp = getType(p);
       const hitType = typeFilter ? tp === typeFilter : true;
       return hitQ && hitType;
     });
   }, [rows, q, typeFilter]);
 
-  const setPending = (id) => {
+  const setPending = async (id) => {
     const note = noteMap[id]?.trim() || "";
     // อนุญาตให้เว้นว่างได้ แต่ถามยืนยันก่อน
     if (!note) {
       if (!window.confirm("ไม่ใส่โน้ตตอนมอบหมายใช่ไหม?")) return;
     }
-    const rec = ownerAssignNoteAndSetPending(id, note); // → สถานะ “ระหว่างแก้ไข”
-    setRows((r) => r.map((x) => (x.id === id ? rec : x)));
-    setNoteMap((m) => ({ ...m, [id]: "" }));
+    try {
+      const rec = await ownerAssignNoteAndSetPending(id, note); // ✅ await ผลลัพธ์จริง
+      setRows((r) => r.map((x) => (x.id === id ? rec : x)));
+      setNoteMap((m) => ({ ...m, [id]: "" }));
+    } catch (e) {
+      alert(e?.message || "มอบหมายไม่สำเร็จ");
+    }
   };
 
   const badge = (status) => {
+    const s = String(status);
     const cls =
-      status === "เปิดปัญหา"
-        ? "bg-rose-100 text-rose-700"
-        : status === "ระหว่างแก้ไข"
-        ? "bg-amber-100 text-amber-700"
-        : "bg-emerald-100 text-emerald-700";
-    return <span className={`px-3 py-1 rounded-lg text-xs font-medium ${cls}`}>{status}</span>;
+      s === "พบปัญหา"
+        ? "bg-rose-100 text-rose-700" // 🔴 สีแดงสำหรับ "พบปัญหา"
+        : s === "ระหว่างแก้ไข"
+        ? "bg-amber-100 text-amber-700" // 🟡 เหลืองระหว่างแก้
+        : s === "แก้ไขแล้ว"
+        ? "bg-emerald-100 text-emerald-700" // 🟢 เขียวแก้เสร็จ
+        : "bg-slate-200 text-slate-700"; // ค่าอื่นๆ (กันพลาด)
+    return (
+      <span className={`px-3 py-1 rounded-lg text-xs font-medium ${cls}`}>
+        {s}
+      </span>
+    );
   };
 
   const fmtDT = (iso) =>
-    iso ? new Date(iso).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" }) : "-";
+    iso
+      ? new Date(iso).toLocaleString("th-TH", {
+          dateStyle: "medium",
+          timeStyle: "short",
+        })
+      : "-";
 
   return (
     <div
@@ -95,7 +119,10 @@ export default function OwnerProblems() {
     >
       <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
       {isSidebarOpen && (
-        <div className="fixed inset-0 bg-black/40 z-40 md:hidden" onClick={() => setIsSidebarOpen(false)} />
+        <div
+          className="fixed inset-0 bg-black/40 z-40 md:hidden"
+          onClick={() => setIsSidebarOpen(false)}
+        />
       )}
 
       <div className="flex-1 min-w-0 flex flex-col">
@@ -111,7 +138,9 @@ export default function OwnerProblems() {
             <Card>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div className="md:col-span-2">
-                  <label className="block text-sm text-slate-600 mb-1">ค้นหา</label>
+                  <label className="block text-sm text-slate-600 mb-1">
+                    ค้นหา
+                  </label>
                   <input
                     value={q}
                     onChange={(e) => setQ(e.target.value)}
@@ -120,7 +149,9 @@ export default function OwnerProblems() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm text-slate-600 mb-1">ประเภท</label>
+                  <label className="block text-sm text-slate-600 mb-1">
+                    ประเภท
+                  </label>
                   <select
                     value={typeFilter}
                     onChange={(e) => setTypeFilter(e.target.value)}
@@ -128,7 +159,7 @@ export default function OwnerProblems() {
                   >
                     <option value="">ทั้งหมด</option>
                     <option value="รายต้น">รายต้น</option>
-                    <option value="ทั้งสวน">ทั้งสวน</option>
+                    <option value="ภาพรวม">ภาพรวม</option>
                   </select>
                 </div>
               </div>
@@ -159,23 +190,39 @@ export default function OwnerProblems() {
                     </thead>
                     <tbody>
                       {filtered.map((p, i) => (
-                        <tr key={p.id} className={i % 2 === 0 ? "bg-white" : "bg-slate-50/60"}>
+                        <tr
+                          key={p.id}
+                          className={
+                            i % 2 === 0 ? "bg-white" : "bg-slate-50/60"
+                          }
+                        >
                           <td className="py-2 px-3">{p.id.slice(0, 8)}</td>
-                          <td className="py-2 px-3">{parseType(p.description)}</td>
+                          <td className="py-2 px-3">{getType(p)}</td>
                           <td className="py-2 px-3">{p.tree_id || "-"}</td>
-                          <td className="py-2 px-3">{stripTypePrefix(p.description)}</td>
+                          <td className="py-2 px-3">
+                            {stripTypePrefix(
+                              p.description || p.note_broker || ""
+                            )}
+                          </td>
                           <td className="py-2 px-3">{badge(p.status)}</td>
                           <td className="py-2 px-3">
                             <input
                               value={noteMap[p.id] ?? p.owner_note ?? ""}
-                              onChange={(e) => setNoteMap((m) => ({ ...m, [p.id]: e.target.value }))}
+                              onChange={(e) =>
+                                setNoteMap((m) => ({
+                                  ...m,
+                                  [p.id]: e.target.value,
+                                }))
+                              }
                               placeholder="พิมพ์แนวทางแก้/มอบหมายงาน"
                               className="w-64 border rounded-lg px-2 py-1"
                             />
                           </td>
-                          <td className="py-2 px-3">{fmtDT(p.updated_at || p.created_at)}</td>
                           <td className="py-2 px-3">
-                            {p.status === "เปิดปัญหา" ? (
+                            {fmtDT(p.updated_at || p.created_at)}
+                          </td>
+                          <td className="py-2 px-3">
+                            {p.status === "พบปัญหา" ? (
                               <button
                                 onClick={() => setPending(p.id)}
                                 className="px-3 py-1 rounded-lg text-white text-xs bg-amber-700 hover:bg-amber-800"
